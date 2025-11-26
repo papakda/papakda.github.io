@@ -100,12 +100,12 @@
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
               d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
       </svg>
-      Use Offline P2P (no internet)
+      Use P2P with 4-digit code
     </button>
 
-    <!-- Simple P2P Connection Setup -->
+    <!-- P2P 4-Digit Code Setup -->
     <div id="p2p-setup-section" class="hidden mt-6 p-6 rounded-xl bg-gray-800/50">
-      <h2 class="text-xl font-semibold mb-4 text-white">Offline P2P Handshake</h2>
+      <h2 class="text-xl font-semibold mb-4 text-white">P2P Handshake (4-digit code)</h2>
 
       <!-- Connection Status -->
       <div class="p-3 rounded-lg bg-gray-700/30 mb-4 flex justify-between items-center text-sm">
@@ -117,75 +117,27 @@
         </span>
       </div>
 
-      <!-- Choose Role -->
-      <div class="grid grid-cols-2 gap-2 mb-4 text-sm">
-        <button id="role-sender-btn"
+      <div class="flex items-center space-x-3 mb-3">
+        <label for="pin-code" class="text-xs text-gray-400">Enter 4-digit code</label>
+        <input id="pin-code" maxlength="4"
+               class="input-style w-24 text-center tracking-widest"
+               placeholder="1234" />
+      </div>
+
+      <div class="grid grid-cols-2 gap-2 text-sm mb-2">
+        <button id="start-sender-btn"
                 class="py-2 rounded-lg border border-indigo-500 bg-indigo-600/20 text-indigo-300 font-semibold">
-          I am Sender
+          Start as Sender
         </button>
-        <button id="role-receiver-btn"
+        <button id="start-receiver-btn"
                 class="py-2 rounded-lg border border-gray-600 bg-gray-700/40 text-gray-200">
-          I am Receiver
+          Start as Receiver
         </button>
       </div>
 
-      <!-- Sender Flow -->
-      <div id="sender-flow" class="space-y-3 text-sm">
-        <p class="text-gray-400">
-          1. Click “Generate connection code”.<br>
-          2. Copy the code and send it to the other device (WhatsApp, iMessage, etc).<br>
-          3. Paste the answer code you get back and click “Finish”.
-        </p>
-
-        <button id="create-offer-btn"
-                class="w-full py-2 btn-main rounded-lg text-sm font-semibold">
-          Generate connection code
-        </button>
-
-        <label class="block mt-2 text-xs text-gray-400">
-          Your connection code (send this to the Receiver)
-        </label>
-        <textarea id="offer-code-text" class="w-full input-style text-xs h-24" readonly
-                  placeholder="Click the button above to generate"></textarea>
-
-        <label class="block mt-2 text-xs text-gray-400">
-          Answer code from Receiver (paste here)
-        </label>
-        <textarea id="answer-from-receiver-input"
-                  class="w-full input-style text-xs h-24"
-                  placeholder="Paste the answer code from the other device here"></textarea>
-
-        <button id="receive-answer-btn"
-                class="w-full py-2 mt-2 bg-indigo-600 rounded-lg text-sm font-semibold hover:bg-indigo-700">
-          Finish connection
-        </button>
-      </div>
-
-      <!-- Receiver Flow -->
-      <div id="receiver-flow" class="space-y-3 text-sm hidden">
-        <p class="text-gray-400">
-          1. Paste the Sender's connection code below and press “Connect to sender”.<br>
-          2. Copy your answer code and send it back to the Sender.
-        </p>
-
-        <label class="block text-xs text-gray-400">
-          Sender's connection code (paste here)
-        </label>
-        <textarea id="signal-input-code"
-                  class="w-full input-style text-xs h-24"
-                  placeholder="Paste the connection code from Sender here"></textarea>
-
-        <button id="generate-answer-btn"
-                class="w-full py-2 bg-purple-600 rounded-lg text-sm font-semibold hover:bg-purple-700">
-          Connect to sender & generate answer
-        </button>
-
-        <label class="block mt-2 text-xs text-gray-400">
-          Your answer code (send this back to Sender)
-        </label>
-        <textarea id="answer-code-text" class="w-full input-style text-xs h-24" readonly
-                  placeholder="Will appear after connecting to Sender"></textarea>
-      </div>
+      <p class="text-xs text-gray-500">
+        Both devices open UniDrop, type the same 4-digit code, and choose who is Sender / Receiver.
+      </p>
     </div>
 
     <!-- Transfer Controls (Visible once P2P connected) -->
@@ -250,6 +202,14 @@
 </div>
 
 <script>
+  // --- CONFIG: set your signaling server base URL here ---
+  // Expected backend endpoints:
+  //   POST  /offer/:code   { sdp }
+  //   GET   /offer/:code   -> { sdp } or 404
+  //   POST  /answer/:code  { sdp }
+  //   GET   /answer/:code  -> { sdp } or 404
+  const SIGNAL_BASE_URL = 'https://your-signal-server.example.com'; // TODO: change this
+
   // --- GLOBALS ---
   let localPeerId = crypto.randomUUID();
   let userName = 'User-' + localPeerId.substring(0, 4);
@@ -276,19 +236,9 @@
   const fileInput = document.getElementById('file-input');
   const showP2PSetupBtn = document.getElementById('show-p2p-setup-btn');
 
-  const roleSenderBtn = document.getElementById('role-sender-btn');
-  const roleReceiverBtn = document.getElementById('role-receiver-btn');
-  const senderFlowEl = document.getElementById('sender-flow');
-  const receiverFlowEl = document.getElementById('receiver-flow');
-
-  const createOfferBtn = document.getElementById('create-offer-btn');
-  const offerCodeTextEl = document.getElementById('offer-code-text');
-  const receiveAnswerBtn = document.getElementById('receive-answer-btn');
-  const answerFromReceiverInputEl = document.getElementById('answer-from-receiver-input');
-
-  const signalInputCodeEl = document.getElementById('signal-input-code');
-  const generateAnswerBtn = document.getElementById('generate-answer-btn');
-  const answerCodeTextEl = document.getElementById('answer-code-text');
+  const pinInputEl = document.getElementById('pin-code');
+  const startSenderBtn = document.getElementById('start-sender-btn');
+  const startReceiverBtn = document.getElementById('start-receiver-btn');
 
   const textInputEl = document.getElementById('text-input');
   const sendTextBtn = document.getElementById('send-text-button');
@@ -338,7 +288,45 @@
     });
   }
 
-  // --- MAIN SHARE FLOW ---
+  function getPinCode() {
+    const raw = (pinInputEl.value || '').trim();
+    if (!/^\d{4}$/.test(raw)) {
+      displayMessage('Enter a 4-digit numeric code (e.g. 1234).', 'error');
+      return null;
+    }
+    return raw;
+  }
+
+  // --- SIGNALING HELPERS (front-end) ---
+  async function postJSON(path, body) {
+    const res = await fetch(SIGNAL_BASE_URL + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      throw new Error('Signal server error: ' + res.status);
+    }
+    try {
+      return await res.json();
+    } catch {
+      return {};
+    }
+  }
+
+  async function getJSON(path) {
+    const res = await fetch(SIGNAL_BASE_URL + path, {
+      method: 'GET',
+      cache: 'no-store',
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      throw new Error('Signal server error: ' + res.status);
+    }
+    return res.json();
+  }
+
+  // --- MAIN SHARE FLOW (Native Share) ---
   mainShareBtn.addEventListener('click', () => {
     fileInput.click();
   });
@@ -366,10 +354,10 @@
         displayMessage('Native share opened. Use AirDrop / QuickShare / nearby share.', 'success');
       }).catch((error) => {
         console.error('Native sharing failed or cancelled:', error);
-        displayMessage('Native sharing failed or cancelled. Try the Offline P2P mode.', 'error');
+        displayMessage('Native sharing failed or cancelled. Try P2P mode.', 'error');
       });
     } else {
-      displayMessage('Native file sharing is not supported here. Use Offline P2P mode.', 'info');
+      displayMessage('Native file sharing is not supported here. Use P2P mode.', 'info');
     }
 
     document.dispatchEvent(new Event('p2p_status_changed'));
@@ -378,23 +366,7 @@
   // --- P2P UI SETUP ---
   showP2PSetupBtn.addEventListener('click', () => {
     setupControlsEl.classList.remove('hidden');
-    displayMessage('Offline P2P mode enabled. Pick Sender or Receiver.', 'info');
-  });
-
-  roleSenderBtn.addEventListener('click', () => {
-    roleSenderBtn.classList.add('border-indigo-500', 'bg-indigo-600/20', 'text-indigo-300');
-    roleReceiverBtn.classList.remove('border-indigo-500', 'bg-indigo-600/20', 'text-indigo-300');
-    roleReceiverBtn.classList.add('border-gray-600', 'bg-gray-700/40', 'text-gray-200');
-    senderFlowEl.classList.remove('hidden');
-    receiverFlowEl.classList.add('hidden');
-  });
-
-  roleReceiverBtn.addEventListener('click', () => {
-    roleReceiverBtn.classList.add('border-indigo-500', 'bg-indigo-600/20', 'text-indigo-300');
-    roleSenderBtn.classList.remove('border-indigo-500', 'bg-indigo-600/20', 'text-indigo-300');
-    roleSenderBtn.classList.add('border-gray-600', 'bg-gray-700/40', 'text-gray-200');
-    receiverFlowEl.classList.remove('hidden');
-    senderFlowEl.classList.add('hidden');
+    displayMessage('P2P mode enabled. Both devices use the same 4-digit code.', 'info');
   });
 
   // --- P2P CORE ---
@@ -440,72 +412,89 @@
     }
   }
 
-  // Sender: generate offer code
-  createOfferBtn.addEventListener('click', async () => {
+  // Sender logic (4-digit code)
+  startSenderBtn.addEventListener('click', async () => {
+    const pin = getPinCode();
+    if (!pin) return;
+
     try {
-      await createPeerConnection(true);
-      const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer);
-
-      displayMessage('Generating connection code... (waiting for candidates)', 'info');
-      await new Promise(resolve => setTimeout(resolve, 3000));
-
-      const payload = JSON.stringify({ sdp: peerConnection.localDescription });
-      offerCodeTextEl.value = payload;
-      offerCodeTextEl.select();
-      displayMessage('Connection code ready. Copy & send to the other device.', 'success');
+      await startAsSenderWithCode(pin);
     } catch (err) {
       console.error(err);
-      displayMessage('Failed to generate connection code.', 'error');
+      displayMessage('Failed to start as Sender: ' + err.message, 'error');
     }
   });
 
-  // Receiver: take offer code, generate answer
-  generateAnswerBtn.addEventListener('click', async () => {
-    const offerPayload = signalInputCodeEl.value.trim();
-    if (!offerPayload) {
-      displayMessage('Paste the Sender connection code first.', 'error');
-      return;
+  async function startAsSenderWithCode(pin) {
+    displayMessage('Starting as Sender with code ' + pin + '...', 'info');
+
+    await createPeerConnection(true);
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+
+    // Upload offer
+    await postJSON('/offer/' + pin, { sdp: offer });
+    displayMessage('Waiting for Receiver to connect...', 'info');
+
+    // Poll for answer
+    const start = Date.now();
+    while (true) {
+      const elapsed = Date.now() - start;
+      if (elapsed > 60_000) throw new Error('Timed out waiting for answer.');
+
+      const data = await getJSON('/answer/' + pin);
+      if (data && data.sdp) {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        displayMessage('Answer received. Connecting...', 'success');
+        break;
+      }
+
+      await new Promise(r => setTimeout(r, 1500));
     }
+  }
+
+  // Receiver logic (4-digit code)
+  startReceiverBtn.addEventListener('click', async () => {
+    const pin = getPinCode();
+    if (!pin) return;
 
     try {
-      const { sdp } = JSON.parse(offerPayload);
-      await createPeerConnection(false);
-      await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
-
-      const answer = await peerConnection.createAnswer();
-      await peerConnection.setLocalDescription(answer);
-
-      displayMessage('Generating answer code... (waiting for candidates)', 'info');
-      await new Promise(resolve => setTimeout(resolve, 3000));
-
-      const answerPayload = JSON.stringify({ sdp: peerConnection.localDescription });
-      answerCodeTextEl.value = answerPayload;
-      answerCodeTextEl.select();
-      displayMessage('Answer code ready. Copy and send back to the Sender.', 'success');
+      await startAsReceiverWithCode(pin);
     } catch (err) {
       console.error(err);
-      displayMessage('Could not process connection code. Is it correct?', 'error');
+      displayMessage('Failed to start as Receiver: ' + err.message, 'error');
     }
   });
 
-  // Sender: apply answer from receiver
-  receiveAnswerBtn.addEventListener('click', async () => {
-    const answerPayload = answerFromReceiverInputEl.value.trim();
-    if (!answerPayload) {
-      displayMessage('Paste the answer code from Receiver first.', 'error');
-      return;
+  async function startAsReceiverWithCode(pin) {
+    displayMessage('Waiting for Sender with code ' + pin + '...', 'info');
+
+    const start = Date.now();
+    let offerSDP = null;
+
+    // Poll for offer
+    while (!offerSDP) {
+      const elapsed = Date.now() - start;
+      if (elapsed > 60_000) throw new Error('Timed out waiting for offer.');
+
+      const data = await getJSON('/offer/' + pin);
+      if (data && data.sdp) {
+        offerSDP = data.sdp;
+        break;
+      }
+
+      await new Promise(r => setTimeout(r, 1500));
     }
 
-    try {
-      const { sdp } = JSON.parse(answerPayload);
-      await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
-      displayMessage('Answer accepted. Finalizing connection...', 'info');
-    } catch (err) {
-      console.error(err);
-      displayMessage('Could not process answer code. Is it correct?', 'error');
-    }
-  });
+    await createPeerConnection(false);
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(offerSDP));
+
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+
+    await postJSON('/answer/' + pin, { sdp: answer });
+    displayMessage('Answer sent back to Sender. Finalizing connection...', 'success');
+  }
 
   // --- DATA CHANNEL & MESSAGE HANDLING ---
   function setupDataChannelListeners(channel) {
