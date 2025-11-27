@@ -80,11 +80,11 @@
         <div id="native-share-section" class="card p-6 rounded-xl mb-8 text-center">
             <h2 class="text-xl font-semibold mb-4 text-white">1. Native OS Bridge</h2>
             <p class="text-sm text-gray-400 mb-4">Click to select files, and your device's native share menu (QuickShare/AirDrop) will appear.</p>
-            <!-- UPDATED: Use Vue click handler instead of native onclick -->
+            <!-- FIX: Use Vue method to trigger native file input -->
             <button @click="triggerNativeFileInput()" 
                     class="btn-primary w-full py-4 text-lg font-bold rounded-lg shadow-lg hover:shadow-green-500/50 transition duration-300">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-6 h-6 inline-block mr-2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m0 0 6.75-6.75M12 19.5l-6-75-6.75-6.75" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m0 0 6.75-6.75M12 19.5l-6.75-6.75" />
                 </svg>
                 Select Files to Share
             </button>
@@ -126,9 +126,10 @@
                 <!-- File Transfer -->
                 <div class="mb-6 card p-4 rounded-xl">
                     <h4 class="font-semibold text-md mb-2">Send Files</h4>
-                    <input type="file" id="p2pFileInput" multiple @change="handleP2PFilesSelected" style="display:none;"
+                    <!-- FIX: Change @change to correctly call the exposed Vue method with the event -->
+                    <input type="file" id="p2pFileInput" multiple @change="handleP2PFilesSelected($event)" style="display:none;"
                            accept="image/*,video/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
-                    <!-- UPDATED: Use Vue click handler instead of native onclick -->
+                    <!-- FIX: Use Vue method to trigger hidden input -->
                     <button @click="triggerP2PFileInput()" class="btn-secondary w-full py-2 rounded-lg">
                         Select Files for P2P
                     </button>
@@ -192,14 +193,25 @@
                 const instantText = ref('');
                 const logHistory = reactive([]);
                 const sendProgress = ref(0);
+                const isSending = ref(false); // Make isSending reactive
 
-                // --- New Vue methods for triggering hidden file inputs ---
+                // --- Utility Functions defined inside setup for Vue context ---
+
                 function triggerNativeFileInput() {
                     document.getElementById('fileInput').click();
                 }
                 function triggerP2PFileInput() {
                     document.getElementById('p2pFileInput').click();
                 }
+                
+                // --- P2P File Handler (FIXED) ---
+                function handleP2PFilesSelected(event) {
+                    // Update the reactive state with the selected files
+                    p2pFiles.splice(0, p2pFiles.length, ...Array.from(event.target.files));
+                    console.log(`Selected ${p2pFiles.length} file(s) for P2P.`);
+                }
+                
+                // The rest of the functions are outside of setup, but we must return the state and methods they rely on.
 
                 return {
                     status,
@@ -211,19 +223,20 @@
                     instantText,
                     logHistory,
                     sendProgress,
+                    isSending, // Exposed
                     connectP2P,
-                    handleP2PFilesSelected,
                     sendP2PFiles,
                     sendInstantText,
                     copyToClipboard,
-                    triggerNativeFileInput, // Added
-                    triggerP2PFileInput   // Added
+                    triggerNativeFileInput,
+                    triggerP2PFileInput,
+                    handleP2PFilesSelected // Exposed the fixed handler
                 };
             }
         }).mount('#app');
 
-        // --- Global P2P Variables ---
-        let ws; // WebSocket for signaling
+        // --- Global P2P Variables (must be defined after app is mounted) ---
+        let ws; 
         let peerConnection;
         let dataChannel;
         let fileQueue = [];
@@ -232,14 +245,13 @@
         let chunkSize = 16 * 1024; // 16KB
 
         // !!! FINAL LIVE RAILWAY URL !!!
-        // This URL is secured (wss) and points directly to your deployed signaling server.
         const SIGNALING_SERVER_URL = "wss://bak-production-d2d1.up.railway.app"; 
 
         const STUN_SERVERS = {
             iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
         };
 
-        // --- Utility Functions ---
+        // --- Utility Functions (Global, relying on app state) ---
 
         function showMessage(title, text) {
             document.getElementById('modal-text').innerText = text;
@@ -317,18 +329,15 @@
         }
 
         // --- P2P Signaling & Connection Logic (Automated) ---
-
-        // Initialize user ID
-        app.userId = createUserId();
         
         function initializeWebSocket() {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.close();
             }
 
-            // The URL is now correct and hardcoded to the live server.
             try {
-                ws = new WebSocket(SIGNALING_SERVER_URL);
+                // Ensure wss protocol is used for live deployment
+                ws = new WebSocket(SIGNALING_SERVER_URL.startsWith('http') ? SIGNALING_SERVER_URL.replace('http', 'ws') : SIGNALING_SERVER_URL);
             } catch (e) {
                 app.status = 'Disconnected';
                 app.p2pMessage = 'Websocket error. Check URL or ensure server is running.';
@@ -492,13 +501,11 @@
 
         // --- P2P Transfer Logic (Sending) ---
 
-        function handleP2PFilesSelected(event) {
-            app.p2pFiles = Array.from(event.target.files);
-        }
+        // NOTE: handleP2PFilesSelected is defined inside setup() to correctly update Vue state.
 
         function sendP2PFiles() {
             if (app.status !== 'Connected' || app.p2pFiles.length === 0) {
-                showMessage('Error', 'Not connected. Please complete the connection handshake.');
+                showMessage('Error', 'Not connected or no files selected. Please connect and select files.');
                 return;
             }
 
@@ -511,7 +518,7 @@
                 app.isSending = false;
                 app.sendProgress = 100;
                 showMessage('Transfer Complete!', 'All files successfully sent over P2P.');
-                app.p2pFiles = [];
+                app.p2pFiles.splice(0); // Clear array
                 document.getElementById('p2pFileInput').value = null; // Reset file input
                 return;
             }
@@ -644,8 +651,13 @@
                 showMessage('Error', 'Your browser does not support the WebRTC technology required for P2P transfer.');
                 return;
             }
-            app.userId = createUserId();
-            app.roomName = 'PARTY-' + Math.floor(Math.random() * 900) + 100;
+            // Ensure app is available before creating ID/RoomName
+            setTimeout(() => {
+                if (app) {
+                    app.userId = createUserId();
+                    app.roomName = 'PARTY-' + Math.floor(Math.random() * 900) + 100;
+                }
+            }, 0);
         };
     </script>
 </body>
