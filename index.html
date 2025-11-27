@@ -599,6 +599,27 @@
                 return;
             }
 
+            // --- Multi-Channel Buffer Check (The Fix) ---
+            let shouldThrottle = false;
+            // Check if ANY channel is overloaded. We must wait for the slowest one.
+            for (const peerId in app.peers) {
+                const dc = app.peers[peerId].channel;
+                // Check if channel is open AND buffered amount is above a safe limit (64KB)
+                if (dc && dc.readyState === 'open' && dc.bufferedAmount > 65536) { 
+                    shouldThrottle = true;
+                    break;
+                }
+            }
+            
+            if (shouldThrottle) {
+                // If any channel is overloaded, wait briefly and try again.
+                // This prevents silent data loss due to buffer saturation.
+                console.log('Throttling send due to buffer congestion...');
+                setTimeout(sendFileChunk, 50); 
+                return; 
+            }
+            // ---------------------------------------------
+
             if (fileOffset < currentFile.size) {
                 const slice = currentFile.slice(fileOffset, fileOffset + chunkSize);
                 const reader = new FileReader();
@@ -608,17 +629,15 @@
                     for (const peerId in app.peers) {
                         const dc = app.peers[peerId].channel;
                         if (dc && dc.readyState === 'open') {
-                             // Check buffer before sending to avoid saturation
-                            if (dc.bufferedAmount < dc.bufferedAmountLowThreshold) {
-                                dc.send(e.target.result);
-                            }
+                             // Buffer check is handled at the top, so we send now.
+                            dc.send(e.target.result);
                         }
                     }
                     
                     fileOffset += e.target.result.byteLength;
                     app.sendProgress = (fileOffset / currentFile.size) * 100;
                     
-                    // Simple recursive call (note: this logic is slightly simplified for single-file, multi-channel broadcast)
+                    // Recursive call immediately after sending, letting the check at the top handle throttling
                     setTimeout(sendFileChunk, 0); 
                 };
 
