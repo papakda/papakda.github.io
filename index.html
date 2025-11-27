@@ -80,14 +80,17 @@
         <div id="native-share-section" class="card p-6 rounded-xl mb-8 text-center">
             <h2 class="text-xl font-semibold mb-4 text-white">1. Native OS Bridge</h2>
             <p class="text-sm text-gray-400 mb-4">Click to select files, and your device's native share menu (QuickShare/AirDrop) will appear.</p>
-            <button onclick="document.getElementById('fileInput').click()" 
+            <!-- UPDATED: Use Vue click handler instead of native onclick -->
+            <button @click="triggerNativeFileInput()" 
                     class="btn-primary w-full py-4 text-lg font-bold rounded-lg shadow-lg hover:shadow-green-500/50 transition duration-300">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-6 h-6 inline-block mr-2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m0 0 6.75-6.75M12 19.5l-6.75-6.75" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m0 0 6.75-6.75M12 19.5l-6-75-6.75-6.75" />
                 </svg>
                 Select Files to Share
             </button>
-            <input type="file" id="fileInput" multiple style="display:none;" onchange="handleNativeShare(this.files)">
+            <input type="file" id="fileInput" multiple style="display:none;" 
+                   onchange="handleNativeShare(this.files)" 
+                   accept="image/*,video/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
         </div>
 
         <!-- P2P Fallback Section -->
@@ -123,8 +126,10 @@
                 <!-- File Transfer -->
                 <div class="mb-6 card p-4 rounded-xl">
                     <h4 class="font-semibold text-md mb-2">Send Files</h4>
-                    <input type="file" id="p2pFileInput" multiple @change="handleP2PFilesSelected" style="display:none;">
-                    <button @click="document.getElementById('p2pFileInput').click()" class="btn-secondary w-full py-2 rounded-lg">
+                    <input type="file" id="p2pFileInput" multiple @change="handleP2PFilesSelected" style="display:none;"
+                           accept="image/*,video/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+                    <!-- UPDATED: Use Vue click handler instead of native onclick -->
+                    <button @click="triggerP2PFileInput()" class="btn-secondary w-full py-2 rounded-lg">
                         Select Files for P2P
                     </button>
                     <button @click="sendP2PFiles" :disabled="p2pFiles.length === 0 || isSending"
@@ -188,6 +193,14 @@
                 const logHistory = reactive([]);
                 const sendProgress = ref(0);
 
+                // --- New Vue methods for triggering hidden file inputs ---
+                function triggerNativeFileInput() {
+                    document.getElementById('fileInput').click();
+                }
+                function triggerP2PFileInput() {
+                    document.getElementById('p2pFileInput').click();
+                }
+
                 return {
                     status,
                     userId,
@@ -202,7 +215,9 @@
                     handleP2PFilesSelected,
                     sendP2PFiles,
                     sendInstantText,
-                    copyToClipboard
+                    copyToClipboard,
+                    triggerNativeFileInput, // Added
+                    triggerP2PFileInput   // Added
                 };
             }
         }).mount('#app');
