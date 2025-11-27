@@ -203,7 +203,7 @@
                 const instantText = ref('');
                 const logHistory = reactive([]);
                 const sendProgress = ref(0);
-                const isSending = ref(false);
+                const isSending = ref(false); 
                 // NEW: Map to hold all active peer connections {peerId: {connection, channel}}
                 const peers = reactive({}); 
 
@@ -218,8 +218,9 @@
                 
                 function handleP2PFilesSelected() {
                     const input = document.getElementById('p2pFileInput');
-                    p2pFiles.splice(0, p2pFiles.length, ...Array.from(input.files));
-                    console.log(`Selected ${p2pFiles.length} file(s) for P2P.`);
+                    // Update the reactive state with the selected files
+                    app.p2pFiles.splice(0, app.p2pFiles.length, ...Array.from(input.files));
+                    console.log(`Selected ${app.p2pFiles.length} file(s) for P2P.`);
                 }
                 
                 // The rest of the global functions rely on these states/methods being returned
@@ -255,6 +256,7 @@
         let chunkSize = 16 * 1024; // 16KB
 
         // !!! FINAL LIVE RAILWAY URL !!!
+        // This URL is secured (wss) and points directly to your deployed signaling server.
         const SIGNALING_SERVER_URL = "wss://bak-production-d2d1.up.railway.app"; 
 
         const STUN_SERVERS = {
@@ -516,7 +518,9 @@
             }
         }
 
+        // FIX: Store peerId directly on the channel
         function setupDataChannel(channel, peerId) {
+            channel.peerId = peerId; 
             channel.onopen = () => {
                 console.log(`Data Channel Open for ${peerId}`);
             };
@@ -556,13 +560,16 @@
             fileOffset = 0;
             app.isSending = true;
             app.sendProgress = 0;
+            
+            // FIX: Assign a unique fileId to the current file object for multi-peer completion message
+            currentFile.fileId = Date.now() + Math.random().toString(36).substring(7);
 
             // 1. Send file metadata to ALL connected peers
             const metadata = {
                 type: 'file_metadata',
                 name: currentFile.name,
                 size: currentFile.size,
-                fileId: Date.now() + Math.random().toString(36).substring(7)
+                fileId: currentFile.fileId // Use the attached ID
             };
             
             let channelsReady = 0;
@@ -585,6 +592,7 @@
         }
 
         function sendFileChunk() {
+            // FIX: Added critical safety check for currentFile
             if (!currentFile) {
                 console.warn('sendFileChunk called with null currentFile. Stopping transfer logic.');
                 app.isSending = false;
@@ -620,7 +628,8 @@
                 for (const peerId in app.peers) {
                     const dc = app.peers[peerId].channel;
                     if (dc && dc.readyState === 'open') {
-                        dc.send(JSON.stringify({ type: 'file_complete' }));
+                        // FIX: Send the fileId back so the receiver knows which buffer to finalize
+                        dc.send(JSON.stringify({ type: 'file_complete', fileId: currentFile.fileId })); 
                     }
                 }
 
@@ -677,44 +686,58 @@
         }
 
         // --- P2P Transfer Logic (Receiving) ---
-        let receivedFileBuffers = {}; // Object to hold buffers for files from different senders
-        let receivingFileMetadata = {}; // Object to hold metadata for files from different senders
+        // FIX: New structure to track multiple files from multiple senders:
+        // { senderId: { fileId: { metadata: {}, buffer: [] } } }
+        let receivedFiles = {}; 
         
         function handleP2PMessage(event) {
-            // In multi-peer mode, we need to know WHICH peer sent the message. 
-            // WebRTC message events don't expose sender ID, so we use the channel's label
-            // and hope it maps back to the correct peer (simplification).
-            
-            // For file chunks, we rely on metadata sent first.
-            
+            // FIX: Get the sender ID from the channel object
+            const senderId = event.target.peerId; 
+            if (!senderId) return console.error("Message received on channel without peerId.");
+
+            if (!receivedFiles[senderId]) {
+                receivedFiles[senderId] = {};
+            }
+
             if (typeof event.data === 'string') {
                 // Text data (metadata or instant text)
                 const data = JSON.parse(event.data);
-                const fileId = data.fileId || 'default'; // Use fileId for unique tracking
 
                 if (data.type === 'file_metadata') {
-                    receivingFileMetadata[fileId] = data;
-                    receivedFileBuffers[fileId] = [];
-                    logTransfer('system', `Receiving file: ${data.name} (${(data.size / 1024 / 1024).toFixed(2)} MB)...`);
+                    const fileId = data.fileId;
+                    receivedFiles[senderId][fileId] = {
+                        metadata: data,
+                        buffer: []
+                    };
+                    logTransfer('system', `Receiving file: ${data.name} from ${senderId} (${(data.size / 1024 / 1024).toFixed(2)} MB)...`);
+
                 } else if (data.type === 'file_complete') {
-                    if (receivedFileBuffers[fileId]) {
-                        const receivedBlob = new Blob(receivedFileBuffers[fileId], { type: 'application/octet-stream' });
-                        downloadFile(receivedBlob, receivingFileMetadata[fileId].name);
-                        logTransfer('file', `Received: ${receivingFileMetadata[fileId].name} successfully.`);
+                    const fileId = data.fileId; // Use fileId sent back from the sender
+                    const fileEntry = receivedFiles[senderId][fileId];
+
+                    if (fileEntry && fileEntry.buffer.length > 0) {
+                        const receivedBlob = new Blob(fileEntry.buffer, { type: 'application/octet-stream' });
+                        downloadFile(receivedBlob, fileEntry.metadata.name);
+                        logTransfer('file', `Received: ${fileEntry.metadata.name} successfully from ${senderId}.`);
                         
-                        delete receivedFileBuffers[fileId];
-                        delete receivingFileMetadata[fileId];
+                        // Clean up
+                        delete receivedFiles[senderId][fileId];
+                    } else {
+                         console.warn(`File completion received for ${fileId}, but buffer was empty.`);
                     }
                 } else if (data.type === 'instant_text') {
-                    logTransfer('text', `Received Text: ${data.content.substring(0, 50)}...`, data.content);
+                    logTransfer('text', `Received Text from ${senderId}: ${data.content.substring(0, 50)}...`, data.content);
                 }
             } else if (event.data instanceof ArrayBuffer) {
-                // Binary data (file chunk) - assumes it belongs to the current receiving file
-                // NOTE: This receiving logic is simplified and assumes file chunks arrive sequentially
-                // If multiple files are sent concurrently, this simplified logic may fail.
-                const firstFileId = Object.keys(receivingFileMetadata)[0];
-                if (firstFileId && receivedFileBuffers[firstFileId]) {
-                    receivedFileBuffers[firstFileId].push(event.data);
+                // Binary data (file chunk)
+                
+                // Find the file currently being transmitted by this sender.
+                // We assume the sender sends files one at a time per peer (due to queueing).
+                const fileIds = Object.keys(receivedFiles[senderId]);
+                if (fileIds.length > 0) {
+                    // Take the first file ID found for this sender (which is the one currently transmitting)
+                    const currentFileId = fileIds[0]; 
+                    receivedFiles[senderId][currentFileId].buffer.push(event.data);
                 }
             }
         }
