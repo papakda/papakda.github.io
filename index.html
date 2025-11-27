@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UniDrop - Seamless Bridge</title>
+    <title>UniDrop - Automated Signaling Bridge</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Use a standard font for a clean, modern look -->
     <style>
@@ -48,6 +48,8 @@
         }
         .air-throw-animation {
             animation: airThrow 1s ease-in-out forwards;
+            position: fixed;
+            z-index: 50;
         }
         /* Custom CSS for the 'Receive Pulse' effect */
         @keyframes receivePulse {
@@ -91,7 +93,7 @@
         <!-- P2P Fallback Section -->
         <div id="p2p-section" class="card p-6 rounded-xl">
             <h2 class="text-xl font-semibold mb-4 text-white">2. Guaranteed P2P Transfer (Fallback)</h2>
-            <p class="text-sm text-gray-400 mb-4">Need to share without internet or when the native share fails? Use our guaranteed automated room connection.</p>
+            <p class="text-sm text-gray-400 mb-4">Need to share without native share or when on restricted networks? Use our guaranteed automated room connection.</p>
 
             <div id="connection-status-info" class="mb-4 p-3 rounded-lg text-center font-medium" :class="{'bg-yellow-900/50 border border-yellow-500': status === 'Disconnected', 'bg-green-900/50 border border-green-500': status === 'Connected'}">
                 Status: <span id="status-display" class="font-bold">{{ status }}</span> 
@@ -100,11 +102,11 @@
 
             <div id="data-usage-warning" class="bg-orange-900/50 p-3 rounded-lg text-sm mb-4 border border-orange-500">
                 <p class="font-bold text-yellow-300">DATA USAGE REQUIRED:</p>
-                <p class="text-yellow-100">Requires a small amount of internet data (e.g., hotspot data) for the initial **handshake only**. File transfer is 100% local (zero mobile data).</p>
+                <p class="text-yellow-100">Requires a small amount of internet data for the initial **handshake only**. File transfer is 100% local (zero mobile data).</p>
             </div>
 
             <div class="mb-4">
-                <label for="roomName" class="block text-sm font-medium mb-2">1. Enter Shared Room Name:</label>
+                <label for="roomName" class="block text-sm font-medium mb-2">1. Enter Shared Room Name/PIN:</label>
                 <input type="text" id="roomName" v-model="roomName" placeholder="PARTY-123" class="input-text w-full p-3 rounded-lg text-center text-lg uppercase" @keyup.enter="connectP2P">
             </div>
 
@@ -167,12 +169,12 @@
         </div>
     </div>
     
-    <!-- FIX: Move Vue CDN link BEFORE the custom script that uses Vue -->
+    <!-- Load Vue before the custom script -->
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
 
     <script>
         // --- Vue.js Setup (Used for reactive UI updates) ---
-        const { createApp, ref, reactive, computed } = Vue;
+        const { createApp, ref, reactive } = Vue;
 
         const app = createApp({
             setup() {
@@ -214,8 +216,9 @@
         let fileOffset = 0;
         let chunkSize = 16 * 1024; // 16KB
 
-        // The mock signaling server URL. MUST be replaced with a real, public WebSocket server URL for production.
-        const SIGNALING_SERVER_URL = "ws://localhost:8080"; 
+        // !!! FINAL LIVE RAILWAY URL !!!
+        // This URL is secured (wss) and points directly to your deployed signaling server.
+        const SIGNALING_SERVER_URL = "wss://bak-production-d2d1.up.railway.app"; 
 
         const STUN_SERVERS = {
             iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
@@ -252,9 +255,8 @@
                 icon: icon,
                 message: message,
                 content: content,
-                cssClass: cssClass + ' receive-pulse' // Apply pulse effect on new entry
+                cssClass: cssClass + ' receive-pulse'
             });
-            // Remove pulse class after animation
             setTimeout(() => {
                 const newLog = app.logHistory.find(log => log.id === Date.now());
                 if (newLog) newLog.cssClass = newLog.cssClass.replace(' receive-pulse', '');
@@ -262,14 +264,13 @@
         }
 
         function copyToClipboard(text) {
-            // navigator.clipboard.writeText might be blocked in iframes/certain contexts, so using execCommand as fallback.
             const tempInput = document.createElement('textarea');
             tempInput.value = text;
             document.body.appendChild(tempInput);
             tempInput.select();
             try {
-                const successful = document.execCommand('copy');
-                showMessage('Copied!', successful ? 'Text successfully copied to your clipboard.' : 'Failed to copy text.');
+                document.execCommand('copy');
+                showMessage('Copied!', 'Text successfully copied to your clipboard.');
             } catch (err) {
                 showMessage('Copy Failed', 'Unable to copy text. Please copy manually.');
             }
@@ -281,7 +282,6 @@
         async function handleNativeShare(files) {
             if (files.length === 0) return;
 
-            // Check if Web Share API is supported and can share files
             if (navigator.share && navigator.canShare && navigator.canShare({ files: [...files] })) {
                 try {
                     await navigator.share({
@@ -311,6 +311,7 @@
                 ws.close();
             }
 
+            // The URL is now correct and hardcoded to the live server.
             try {
                 ws = new WebSocket(SIGNALING_SERVER_URL);
             } catch (e) {
@@ -338,7 +339,7 @@
                 console.log('WebSocket disconnected.');
                 if (app.status !== 'Connected') {
                     app.status = 'Disconnected';
-                    app.p2pMessage = 'Signaling disconnected. Ensure you have mobile data/internet access for the handshake.';
+                    app.p2pMessage = 'Signaling disconnected. Ensure the server is active.';
                 }
                 app.isConnecting = false;
             };
@@ -346,7 +347,7 @@
             ws.onerror = (err) => {
                 console.error('WebSocket error:', err);
                 app.status = 'Disconnected';
-                app.p2pMessage = 'Signaling connection failed. Check console for details.';
+                app.p2pMessage = 'Signaling connection failed. Ensure the server is running and accessible.';
                 app.isConnecting = false;
             };
         }
@@ -414,7 +415,7 @@
                 if (peerConnection.connectionState === 'connected') {
                     app.status = 'Connected';
                     app.isConnecting = false;
-                    app.p2pMessage = 'P2P Connection established successfully!';
+                    app.p2pMessage = 'P2P Connection established successfully! Transfer is now 100% local.';
                     logTransfer('system', 'P2P connection established with peer.');
                 } else if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'closed') {
                     app.status = 'Disconnected';
@@ -481,7 +482,10 @@
         }
 
         function sendP2PFiles() {
-            if (app.status !== 'Connected' || app.p2pFiles.length === 0) return;
+            if (app.status !== 'Connected' || app.p2pFiles.length === 0) {
+                showMessage('Error', 'Not connected. Please complete the connection handshake.');
+                return;
+            }
 
             fileQueue = [...app.p2pFiles]; // Copy files to queue
             sendNextFile();
@@ -548,7 +552,10 @@
         }
 
         function sendInstantText() {
-            if (app.status !== 'Connected' || !app.instantText.trim()) return;
+            if (app.status !== 'Connected' || !app.instantText.trim()) {
+                showMessage('Error', 'Not connected. Please complete the connection handshake.');
+                return;
+            }
 
             const textData = {
                 type: 'instant_text',
@@ -618,18 +625,13 @@
         // --- Initialization ---
 
         window.onload = () => {
-            // Check for WebRTC support
             if (!RTCPeerConnection) {
                 showMessage('Error', 'Your browser does not support the WebRTC technology required for P2P transfer.');
                 return;
             }
-            
-            // Set initial user ID
             app.userId = createUserId();
-            // Set initial room name suggestion
             app.roomName = 'PARTY-' + Math.floor(Math.random() * 900) + 100;
         };
     </script>
-
 </body>
 </html>
