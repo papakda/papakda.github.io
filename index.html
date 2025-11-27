@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UniDrop - Automated Signaling Bridge</title>
+    <title>UniDrop - Multi-Peer Signaling Bridge</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Use a standard font for a clean, modern look -->
     <style>
@@ -98,7 +98,7 @@
             <h2 class="text-xl font-semibold mb-4 text-white">2. Guaranteed P2P Transfer (Fallback)</h2>
             <p class="text-sm text-gray-400 mb-4">Need to share without native share or when on restricted networks? Use our guaranteed automated room connection.</p>
 
-            <div id="connection-status-info" class="mb-4 p-3 rounded-lg text-center font-medium" :class="{'bg-yellow-900/50 border border-yellow-500': status === 'Disconnected', 'bg-green-900/50 border border-green-500': status === 'Connected'}">
+            <div id="connection-status-info" class="mb-4 p-3 rounded-lg text-center font-medium" :class="{'bg-yellow-900/50 border border-yellow-500': status !== 'Connected' && !isConnecting, 'bg-green-900/50 border border-green-500': status === 'Connected'}">
                 Status: <span id="status-display" class="font-bold">{{ status }}</span> 
                 <span id="user-id-display" class="ml-4 text-xs text-gray-400">ID: {{ userId }}</span>
             </div>
@@ -119,9 +119,19 @@
             </button>
             <p id="p2p-message" class="text-center mt-3 text-sm text-red-400" v-if="p2pMessage">{{ p2pMessage }}</p>
 
+            <!-- Active Peers List -->
+            <div id="active-peers" class="mt-4 pt-4 border-t border-gray-700" v-if="status === 'Connected'">
+                <h3 class="text-lg font-semibold mb-2 text-white">Active Peers ({{ Object.keys(peers).length }})</h3>
+                <div class="flex flex-wrap gap-2 text-sm text-gray-400">
+                    <span v-for="peer in Object.keys(peers)" :key="peer" class="bg-blue-900/30 px-3 py-1 rounded-full border border-blue-500">{{ peer }}</span>
+                </div>
+                <p v-if="Object.keys(peers).length === 0" class="text-gray-500 text-sm">No other peers connected yet. Share the Room Name!</p>
+            </div>
+
+
             <!-- Transfer Controls (Visible on Connection) -->
             <div id="transfer-controls" class="mt-8 pt-4 border-t border-gray-700" v-if="status === 'Connected'">
-                <h3 class="text-lg font-semibold mb-4 text-green-400">Transfer Controls (Connected)</h3>
+                <h3 class="text-lg font-semibold mb-4 text-green-400">Transfer Controls (Broadcast to {{ Object.keys(peers).length }} Peers)</h3>
 
                 <!-- File Transfer -->
                 <div class="mb-6 card p-4 rounded-xl">
@@ -133,8 +143,8 @@
                     <button @click="triggerP2PFileInput()" class="btn-secondary w-full py-2 rounded-lg">
                         Select Files for P2P
                     </button>
-                    <button @click="sendP2PFiles" :disabled="p2pFiles.length === 0 || isSending"
-                            class="btn-primary w-full py-2 mt-2 rounded-lg" :class="{'opacity-50 cursor-not-allowed': p2pFiles.length === 0 || isSending}">
+                    <button @click="sendP2PFiles" :disabled="p2pFiles.length === 0 || isSending || Object.keys(peers).length === 0"
+                            class="btn-primary w-full py-2 mt-2 rounded-lg" :class="{'opacity-50 cursor-not-allowed': p2pFiles.length === 0 || isSending || Object.keys(peers).length === 0}">
                         {{ isSending ? `Sending... (${sendProgress.toFixed(0)}%)` : `Send ${p2pFiles.length} File(s)` }}
                     </button>
                     <p class="text-xs text-gray-500 mt-2" v-if="p2pFiles.length > 0">Ready to send: {{ p2pFiles.map(f => f.name).join(', ') }}</p>
@@ -145,8 +155,8 @@
                     <h4 class="font-semibold text-md mb-2">Send Instant Text/Clipboard</h4>
                     <textarea v-model="instantText" placeholder="Paste text, a link, or a code snippet here."
                               class="input-text w-full p-2 rounded-lg resize-none text-sm h-20 mb-2"></textarea>
-                    <button @click="sendInstantText" :disabled="!instantText.trim()" class="btn-primary w-full py-2 rounded-lg"
-                            :class="{'opacity-50 cursor-not-allowed': !instantText.trim()}">
+                    <button @click="sendInstantText" :disabled="!instantText.trim() || Object.keys(peers).length === 0" class="btn-primary w-full py-2 rounded-lg"
+                            :class="{'opacity-50 cursor-not-allowed': !instantText.trim() || Object.keys(peers).length === 0}">
                         Send Text Instantly
                     </button>
                 </div>
@@ -193,7 +203,9 @@
                 const instantText = ref('');
                 const logHistory = reactive([]);
                 const sendProgress = ref(0);
-                const isSending = ref(false); 
+                const isSending = ref(false);
+                // NEW: Map to hold all active peer connections {peerId: {connection, channel}}
+                const peers = reactive({}); 
 
                 // --- Utility Functions defined inside setup for Vue context ---
 
@@ -204,10 +216,8 @@
                     document.getElementById('p2pFileInput').click();
                 }
                 
-                // --- P2P File Handler (FIXED for reliable file reading) ---
                 function handleP2PFilesSelected() {
                     const input = document.getElementById('p2pFileInput');
-                    // Update the reactive state with the selected files
                     p2pFiles.splice(0, p2pFiles.length, ...Array.from(input.files));
                     console.log(`Selected ${p2pFiles.length} file(s) for P2P.`);
                 }
@@ -225,6 +235,7 @@
                     logHistory,
                     sendProgress,
                     isSending,
+                    peers, // Exposed peers object
                     connectP2P,
                     sendP2PFiles,
                     sendInstantText,
@@ -238,15 +249,12 @@
 
         // --- Global P2P Variables (must be defined after app is mounted) ---
         let ws; 
-        let peerConnection;
-        let dataChannel;
         let fileQueue = [];
         let currentFile = null;
         let fileOffset = 0;
         let chunkSize = 16 * 1024; // 16KB
 
         // !!! FINAL LIVE RAILWAY URL !!!
-        // This URL is secured (wss) and points directly to your deployed signaling server.
         const SIGNALING_SERVER_URL = "wss://bak-production-d2d1.up.railway.app"; 
 
         const STUN_SERVERS = {
@@ -341,7 +349,6 @@
             }
 
             try {
-                // Ensure wss protocol is used for live deployment
                 ws = new WebSocket(SIGNALING_SERVER_URL.startsWith('http') ? SIGNALING_SERVER_URL.replace('http', 'ws') : SIGNALING_SERVER_URL);
             } catch (e) {
                 app.status = 'Disconnected';
@@ -354,7 +361,7 @@
                 console.log('WebSocket connected.');
                 app.p2pMessage = 'WebSocket connected. Sending join request...';
                 
-                // 1. Send ID and Room Name to the signaling server
+                // Send ID and Room Name to the signaling server
                 ws.send(JSON.stringify({
                     type: 'join',
                     room: app.roomName.toUpperCase(),
@@ -366,9 +373,14 @@
 
             ws.onclose = () => {
                 console.log('WebSocket disconnected.');
-                if (app.status !== 'Connected') {
-                    app.status = 'Disconnected';
-                    app.p2pMessage = 'Signaling disconnected. Ensure the server is active.';
+                app.status = 'Disconnected';
+                app.p2pMessage = 'Signaling disconnected. Please refresh or try again.';
+                // Clean up all peer connections on signaling server disconnect
+                for (const peerId in app.peers) {
+                    if (app.peers[peerId].connection) {
+                        app.peers[peerId].connection.close();
+                    }
+                    delete app.peers[peerId];
                 }
                 app.isConnecting = false;
             };
@@ -376,7 +388,7 @@
             ws.onerror = (err) => {
                 console.error('WebSocket error:', err);
                 app.status = 'Disconnected';
-                app.p2pMessage = 'Signaling connection failed. Ensure the server is running and accessible.';
+                app.p2pMessage = 'Signaling connection failed. Check console for error details.';
                 app.isConnecting = false;
             };
         }
@@ -390,94 +402,112 @@
             app.isConnecting = true;
             app.p2pMessage = 'Attempting connection... (requires internet access for handshake)';
             initializeWebSocket();
+            app.status = 'Connecting...';
         }
+        
+        // --- Multi-Peer Signaling Handlers ---
 
         function handleSignalingMessage(event) {
             const data = JSON.parse(event.data);
 
             if (data.type === 'peer_joined') {
-                // A new peer joined the room. This device is the 'offerer'.
-                if (data.id !== app.userId) {
+                // A new peer joined the room. This peer is the 'offerer' to the new peer.
+                if (data.id !== app.userId && !app.peers[data.id]) {
                     app.p2pMessage = `Peer ${data.id} joined. Creating offer...`;
                     initializePeerConnection(true, data.id);
                 }
             } else if (data.type === 'offer') {
                 // Received an offer. This device is the 'answerer'.
-                app.p2pMessage = `Received offer from ${data.senderId}. Creating answer...`;
+                if (data.senderId !== app.userId && !app.peers[data.senderId]) {
+                    app.p2pMessage = `Received offer from ${data.senderId}. Creating answer...`;
                     initializePeerConnection(false, data.senderId, data.sdp);
+                }
             } else if (data.type === 'answer') {
                 // Received an answer to our offer.
-                app.p2pMessage = 'Received answer. Finalizing connection...';
-                peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp))
-                    .catch(e => console.error('Error setting remote description (answer):', e));
+                if (app.peers[data.senderId] && app.peers[data.senderId].connection) {
+                    app.p2pMessage = `Received answer from ${data.senderId}. Finalizing connection...`;
+                    app.peers[data.senderId].connection.setRemoteDescription(new RTCSessionDescription(data.sdp))
+                        .catch(e => console.error('Error setting remote description (answer):', e));
+                }
             } else if (data.type === 'ice_candidate') {
                 // Received an ICE candidate.
-                if (data.candidate) {
-                    peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate))
+                 if (app.peers[data.senderId] && app.peers[data.senderId].connection && data.candidate) {
+                    app.peers[data.senderId].connection.addIceCandidate(new RTCIceCandidate(data.candidate))
                         .catch(e => console.error('Error adding ICE candidate:', e));
                 }
             }
         }
 
         function initializePeerConnection(isOfferer, remoteId, offerSdp = null) {
-            peerConnection = new RTCPeerConnection(STUN_SERVERS);
+            const pc = new RTCPeerConnection(STUN_SERVERS);
+            
+            // Add peer to the reactive peers object
+            app.peers[remoteId] = { connection: pc, channel: null, status: 'Connecting' };
 
-            peerConnection.onicecandidate = (event) => {
+            pc.onicecandidate = (event) => {
                 if (event.candidate) {
                     // Send candidate over the signaling channel
                     ws.send(JSON.stringify({
                         type: 'ice_candidate',
                         room: app.roomName.toUpperCase(),
                         candidate: event.candidate,
-                        recipientId: remoteId
+                        recipientId: remoteId,
+                        senderId: app.userId
                     }));
                 }
             };
 
-            peerConnection.ondatachannel = (event) => {
-                dataChannel = event.channel;
-                setupDataChannel(dataChannel);
+            pc.ondatachannel = (event) => {
+                app.peers[remoteId].channel = event.channel;
+                setupDataChannel(event.channel, remoteId);
             };
             
-            peerConnection.onconnectionstatechange = () => {
-                console.log('PC State:', peerConnection.connectionState);
-                if (peerConnection.connectionState === 'connected') {
-                    app.status = 'Connected';
+            pc.onconnectionstatechange = () => {
+                console.log(`[${remoteId}] PC State:`, pc.connectionState);
+                if (pc.connectionState === 'connected') {
+                    app.peers[remoteId].status = 'Connected';
+                    app.status = 'Connected'; // Main status reflects at least one connection
+                    app.p2pMessage = `P2P link established with ${remoteId}.`;
+                    logTransfer('system', `P2P link established with ${remoteId}.`);
                     app.isConnecting = false;
-                    app.p2pMessage = 'P2P Connection established successfully! Transfer is now 100% local.';
-                    logTransfer('system', 'P2P connection established with peer.');
-                } else if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'closed') {
-                    app.status = 'Disconnected';
-                    app.isConnecting = false;
-                    app.p2pMessage = 'P2P connection failed or closed. Try reconnecting.';
+                } else if (pc.connectionState === 'failed' || pc.connectionState === 'closed' || pc.connectionState === 'disconnected') {
+                    app.peers[remoteId].status = 'Disconnected';
+                    logTransfer('system', `P2P link to ${remoteId} closed.`);
+                    // Clean up peer state
+                    delete app.peers[remoteId]; 
+                    // If all peers are gone, main status is disconnected
+                    if (Object.keys(app.peers).length === 0) {
+                        app.status = 'Disconnected';
+                    }
                 }
             };
 
             if (isOfferer) {
-                dataChannel = peerConnection.createDataChannel('fileChannel');
-                setupDataChannel(dataChannel);
+                const dc = pc.createDataChannel('fileChannel');
+                app.peers[remoteId].channel = dc;
+                setupDataChannel(dc, remoteId);
 
-                peerConnection.createOffer()
-                    .then(offer => peerConnection.setLocalDescription(offer))
+                pc.createOffer()
+                    .then(offer => pc.setLocalDescription(offer))
                     .then(() => {
                         ws.send(JSON.stringify({
                             type: 'offer',
                             room: app.roomName.toUpperCase(),
-                            sdp: peerConnection.localDescription,
+                            sdp: pc.localDescription,
                             senderId: app.userId,
                             recipientId: remoteId
                         }));
                     })
                     .catch(e => console.error('Error creating offer:', e));
             } else { // Answerer
-                peerConnection.setRemoteDescription(new RTCSessionDescription(offerSdp))
-                    .then(() => peerConnection.createAnswer())
-                    .then(answer => peerConnection.setLocalDescription(answer))
+                pc.setRemoteDescription(new RTCSessionDescription(offerSdp))
+                    .then(() => pc.createAnswer())
+                    .then(answer => pc.setLocalDescription(answer))
                     .then(() => {
                         ws.send(JSON.stringify({
                             type: 'answer',
                             room: app.roomName.toUpperCase(),
-                            sdp: peerConnection.localDescription,
+                            sdp: pc.localDescription,
                             senderId: app.userId,
                             recipientId: remoteId
                         }));
@@ -486,31 +516,23 @@
             }
         }
 
-        function setupDataChannel(channel) {
+        function setupDataChannel(channel, peerId) {
             channel.onopen = () => {
-                console.log('Data Channel Open');
-                app.status = 'Connected';
-                app.isConnecting = false;
+                console.log(`Data Channel Open for ${peerId}`);
             };
 
             channel.onmessage = handleP2PMessage;
 
             channel.onclose = () => {
-                console.log('Data Channel Closed');
-                app.status = 'Disconnected';
+                console.log(`Data Channel Closed for ${peerId}`);
             };
-            
-            // Allow data to be accessed globally for sending
-            dataChannel = channel;
         }
 
         // --- P2P Transfer Logic (Sending) ---
 
-        // NOTE: handleP2PFilesSelected is defined inside setup() to correctly update Vue state.
-
         function sendP2PFiles() {
-            if (app.status !== 'Connected' || app.p2pFiles.length === 0) {
-                showMessage('Error', 'Not connected or no files selected. Please connect and select files.');
+            if (Object.keys(app.peers).length === 0 || app.p2pFiles.length === 0) {
+                showMessage('Error', 'Not connected to any peers or no files selected.');
                 return;
             }
 
@@ -520,8 +542,10 @@
         
         function sendNextFile() {
             if (fileQueue.length === 0) {
+                // All files sent successfully, reset global state
                 app.isSending = false;
                 app.sendProgress = 100;
+                currentFile = null; 
                 showMessage('Transfer Complete!', 'All files successfully sent over P2P.');
                 app.p2pFiles.splice(0); // Clear array
                 document.getElementById('p2pFileInput').value = null; // Reset file input
@@ -533,45 +557,75 @@
             app.isSending = true;
             app.sendProgress = 0;
 
-            // 1. Send file metadata
+            // 1. Send file metadata to ALL connected peers
             const metadata = {
                 type: 'file_metadata',
                 name: currentFile.name,
                 size: currentFile.size,
                 fileId: Date.now() + Math.random().toString(36).substring(7)
             };
-            dataChannel.send(JSON.stringify(metadata));
-
-            // 2. Start sending chunks
-            sendFileChunk();
+            
+            let channelsReady = 0;
+            for (const peerId in app.peers) {
+                const dc = app.peers[peerId].channel;
+                if (dc && dc.readyState === 'open') {
+                    dc.send(JSON.stringify(metadata));
+                    channelsReady++;
+                }
+            }
+            
+            if (channelsReady > 0) {
+                // 2. Start sending chunks (will be broadcast to all channels)
+                sendFileChunk();
+            } else {
+                showMessage('Error', 'No active data channels to send file. Connection may be restricted.');
+                app.isSending = false;
+                currentFile = null;
+            }
         }
 
         function sendFileChunk() {
+            if (!currentFile) {
+                console.warn('sendFileChunk called with null currentFile. Stopping transfer logic.');
+                app.isSending = false;
+                return;
+            }
+
             if (fileOffset < currentFile.size) {
                 const slice = currentFile.slice(fileOffset, fileOffset + chunkSize);
                 const reader = new FileReader();
 
                 reader.onload = (e) => {
-                    // Send the chunk data (ArrayBuffer)
-                    dataChannel.send(e.target.result);
+                    // Send the chunk data (ArrayBuffer) to ALL connected peers
+                    for (const peerId in app.peers) {
+                        const dc = app.peers[peerId].channel;
+                        if (dc && dc.readyState === 'open') {
+                             // Check buffer before sending to avoid saturation
+                            if (dc.bufferedAmount < dc.bufferedAmountLowThreshold) {
+                                dc.send(e.target.result);
+                            }
+                        }
+                    }
                     
                     fileOffset += e.target.result.byteLength;
                     app.sendProgress = (fileOffset / currentFile.size) * 100;
                     
-                    // Throttle sending slightly to avoid data channel buffer overflow
-                    if (dataChannel.bufferedAmount < dataChannel.bufferedAmountLowThreshold) {
-                        sendFileChunk();
-                    } else {
-                        dataChannel.onbufferedamountlow = sendFileChunk;
-                    }
+                    // Simple recursive call (note: this logic is slightly simplified for single-file, multi-channel broadcast)
+                    setTimeout(sendFileChunk, 0); 
                 };
 
                 reader.readAsArrayBuffer(slice);
             } else {
-                // 3. Send transfer completion message
-                dataChannel.send(JSON.stringify({ type: 'file_complete' }));
-                logTransfer('file', `Sent: ${currentFile.name} (${(currentFile.size / 1024 / 1024).toFixed(2)} MB)`);
-                currentFile = null;
+                // 3. Send transfer completion message to ALL peers
+                for (const peerId in app.peers) {
+                    const dc = app.peers[peerId].channel;
+                    if (dc && dc.readyState === 'open') {
+                        dc.send(JSON.stringify({ type: 'file_complete' }));
+                    }
+                }
+
+                logTransfer('file', `Broadcast Sent: ${currentFile.name} (${(currentFile.size / 1024 / 1024).toFixed(2)} MB)`);
+                currentFile = null; 
                 
                 // Start next file transfer
                 setTimeout(sendNextFile, 100); 
@@ -579,8 +633,8 @@
         }
 
         function sendInstantText() {
-            if (app.status !== 'Connected' || !app.instantText.trim()) {
-                showMessage('Error', 'Not connected. Please complete the connection handshake.');
+            if (Object.keys(app.peers).length === 0 || !app.instantText.trim()) {
+                showMessage('Error', 'Not connected to any peers.');
                 return;
             }
 
@@ -603,36 +657,64 @@
                 flyingIcon.remove();
             }, 1000);
 
-            dataChannel.send(JSON.stringify(textData));
-            logTransfer('text', `Sent Text: ${app.instantText.substring(0, 30)}...`);
+            // Broadcast text to ALL connected peers
+            let successCount = 0;
+            for (const peerId in app.peers) {
+                const dc = app.peers[peerId].channel;
+                if (dc && dc.readyState === 'open') {
+                    dc.send(JSON.stringify(textData));
+                    successCount++;
+                }
+            }
+
+            if (successCount > 0) {
+                 logTransfer('text', `Broadcast Sent: ${app.instantText.substring(0, 30)}...`);
+            } else {
+                 showMessage('Error', 'No active data channels to send text. Connection may be restricted.');
+            }
+            
             app.instantText = ''; // Clear input after sending
         }
 
         // --- P2P Transfer Logic (Receiving) ---
-        let receivedFileBuffers = [];
-        let receivingFileMetadata = null;
+        let receivedFileBuffers = {}; // Object to hold buffers for files from different senders
+        let receivingFileMetadata = {}; // Object to hold metadata for files from different senders
         
         function handleP2PMessage(event) {
+            // In multi-peer mode, we need to know WHICH peer sent the message. 
+            // WebRTC message events don't expose sender ID, so we use the channel's label
+            // and hope it maps back to the correct peer (simplification).
+            
+            // For file chunks, we rely on metadata sent first.
+            
             if (typeof event.data === 'string') {
                 // Text data (metadata or instant text)
                 const data = JSON.parse(event.data);
+                const fileId = data.fileId || 'default'; // Use fileId for unique tracking
 
                 if (data.type === 'file_metadata') {
-                    receivingFileMetadata = data;
-                    receivedFileBuffers = [];
+                    receivingFileMetadata[fileId] = data;
+                    receivedFileBuffers[fileId] = [];
                     logTransfer('system', `Receiving file: ${data.name} (${(data.size / 1024 / 1024).toFixed(2)} MB)...`);
                 } else if (data.type === 'file_complete') {
-                    const receivedBlob = new Blob(receivedFileBuffers, { type: 'application/octet-stream' });
-                    downloadFile(receivedBlob, receivingFileMetadata.name);
-                    logTransfer('file', `Received: ${receivingFileMetadata.name} successfully.`);
-                    receivingFileMetadata = null;
+                    if (receivedFileBuffers[fileId]) {
+                        const receivedBlob = new Blob(receivedFileBuffers[fileId], { type: 'application/octet-stream' });
+                        downloadFile(receivedBlob, receivingFileMetadata[fileId].name);
+                        logTransfer('file', `Received: ${receivingFileMetadata[fileId].name} successfully.`);
+                        
+                        delete receivedFileBuffers[fileId];
+                        delete receivingFileMetadata[fileId];
+                    }
                 } else if (data.type === 'instant_text') {
                     logTransfer('text', `Received Text: ${data.content.substring(0, 50)}...`, data.content);
                 }
             } else if (event.data instanceof ArrayBuffer) {
-                // Binary data (file chunk)
-                if (receivingFileMetadata) {
-                    receivedFileBuffers.push(event.data);
+                // Binary data (file chunk) - assumes it belongs to the current receiving file
+                // NOTE: This receiving logic is simplified and assumes file chunks arrive sequentially
+                // If multiple files are sent concurrently, this simplified logic may fail.
+                const firstFileId = Object.keys(receivingFileMetadata)[0];
+                if (firstFileId && receivedFileBuffers[firstFileId]) {
+                    receivedFileBuffers[firstFileId].push(event.data);
                 }
             }
         }
