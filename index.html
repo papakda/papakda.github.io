@@ -126,8 +126,8 @@
                 <!-- File Transfer -->
                 <div class="mb-6 card p-4 rounded-xl">
                     <h4 class="font-semibold text-md mb-2">Send Files</h4>
-                    <!-- FIX: Change @change to correctly call the exposed Vue method with the event -->
-                    <input type="file" id="p2pFileInput" multiple @change="handleP2PFilesSelected($event)" style="display:none;"
+                    <!-- FIX: @change calls handleP2PFilesSelected, which is now simplified and integrated -->
+                    <input type="file" id="p2pFileInput" multiple @change="handleP2PFilesSelected()" style="display:none;"
                            accept="image/*,video/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
                     <!-- FIX: Use Vue method to trigger hidden input -->
                     <button @click="triggerP2PFileInput()" class="btn-secondary w-full py-2 rounded-lg">
@@ -193,7 +193,7 @@
                 const instantText = ref('');
                 const logHistory = reactive([]);
                 const sendProgress = ref(0);
-                const isSending = ref(false); // Make isSending reactive
+                const isSending = ref(false); 
 
                 // --- Utility Functions defined inside setup for Vue context ---
 
@@ -204,14 +204,15 @@
                     document.getElementById('p2pFileInput').click();
                 }
                 
-                // --- P2P File Handler (FIXED) ---
-                function handleP2PFilesSelected(event) {
+                // --- P2P File Handler (FIXED for reliable file reading) ---
+                function handleP2PFilesSelected() {
+                    const input = document.getElementById('p2pFileInput');
                     // Update the reactive state with the selected files
-                    p2pFiles.splice(0, p2pFiles.length, ...Array.from(event.target.files));
+                    p2pFiles.splice(0, p2pFiles.length, ...Array.from(input.files));
                     console.log(`Selected ${p2pFiles.length} file(s) for P2P.`);
                 }
                 
-                // The rest of the functions are outside of setup, but we must return the state and methods they rely on.
+                // The rest of the global functions rely on these states/methods being returned
 
                 return {
                     status,
@@ -223,14 +224,14 @@
                     instantText,
                     logHistory,
                     sendProgress,
-                    isSending, // Exposed
+                    isSending,
                     connectP2P,
                     sendP2PFiles,
                     sendInstantText,
                     copyToClipboard,
                     triggerNativeFileInput,
                     triggerP2PFileInput,
-                    handleP2PFilesSelected // Exposed the fixed handler
+                    handleP2PFilesSelected 
                 };
             }
         }).mount('#app');
@@ -245,6 +246,7 @@
         let chunkSize = 16 * 1024; // 16KB
 
         // !!! FINAL LIVE RAILWAY URL !!!
+        // This URL is secured (wss) and points directly to your deployed signaling server.
         const SIGNALING_SERVER_URL = "wss://bak-production-d2d1.up.railway.app"; 
 
         const STUN_SERVERS = {
@@ -329,6 +331,9 @@
         }
 
         // --- P2P Signaling & Connection Logic (Automated) ---
+
+        // Initialize user ID
+        app.userId = createUserId();
         
         function initializeWebSocket() {
             if (ws && ws.readyState === WebSocket.OPEN) {
