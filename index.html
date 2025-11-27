@@ -3,11 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UniDrop | Zero-Paste P2P Bridge</title>
+    <title>UniDrop | Automated Bridge</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- QR Code Library -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script> 
     
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
@@ -46,6 +44,7 @@
             padding: 0.75rem;
             border-radius: 0.5rem;
             font-size: 0.9rem;
+            resize: none;
         }
         /* Fallback P2P buttons */
         .btn-p2p {
@@ -57,16 +56,9 @@
             background-color: #374151;
             color: white;
         }
-        .qr-placeholder {
-            min-height: 200px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background-color: #21262d;
-            border-radius: 0.5rem;
-        }
-        #qrcode-offer img, #qrcode-answer img {
-            margin: auto;
+        .mock-warning {
+             background-color: #3b0764; /* Purple 900 */
+             border-left: 4px solid #c084fc; /* Purple 400 */
         }
     </style>
 </head>
@@ -96,13 +88,18 @@
         <!-- P2P Fallback Trigger -->
         <button id="show-p2p-setup-btn" class="w-full py-2 mt-6 rounded-lg text-sm font-medium btn-p2p flex items-center justify-center">
              <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-            Troubleshoot Connection (100% Offline P2P)
+            Troubleshoot Connection (PIN/Room)
         </button>
 
 
         <!-- P2P Connection Setup Section (Hidden by default) -->
         <div id="p2p-setup-section" class="hidden mt-6 p-6 rounded-xl bg-gray-800/50">
-            <h2 class="text-xl font-semibold mb-4 text-white">Universal P2P Handshake (Zero-Paste Flow)</h2>
+            <h2 class="text-xl font-semibold mb-4 text-white">Automated P2P Handshake (Room Name)</h2>
+            
+            <!-- DATA USAGE WARNING -->
+            <div class="p-3 mb-4 rounded-lg bg-yellow-900/40 text-sm text-yellow-300 font-semibold">
+                DATA USAGE: Requires a small amount of internet data (e.g., hotspot data) for the initial handshake only. File transfer is 100% local.
+            </div>
 
             <!-- Connection Status -->
             <div class="p-3 rounded-lg bg-gray-700/30 mb-4 flex justify-between items-center text-sm">
@@ -112,42 +109,18 @@
             
             <div class="space-y-4">
                 
-                <!-- Step 1: Generate Offer -->
-                <div id="offer-step">
-                    <button id="create-offer-btn" class="w-full py-3 btn-main rounded-lg text-md font-medium bg-green-600 hover:bg-green-700">
-                        1. Generate Offer QR (Sender)
-                    </button>
-                    <div id="qrcode-offer" class="qr-placeholder mt-3 hidden">
-                        <p class="text-sm text-gray-400">Scan this code with the Receiver device.</p>
-                    </div>
-                    <p id="offer-status" class="text-xs text-yellow-400 mt-2 hidden text-center">Gathering network data (5s)...</p>
+                <!-- Room Input -->
+                <div>
+                    <h3 class="text-lg font-semibold mb-2 text-white">1. Enter Shared Room Name:</h3>
+                    <input type="text" id="room-input" placeholder="e.g., PARTY-1234 (Share this name with the other device)" class="w-full input-style text-center text-xl font-bold" maxlength="10">
                 </div>
-
-                <div class="text-center text-gray-500 font-bold py-2">--- SCAN & EXCHANGE ---</div>
                 
-                <!-- Step 2 & 3: Scan and Process -->
-                <div id="answer-step">
-                    <h3 class="text-lg font-semibold mb-2 text-white">Input/Scan Code:</h3>
-                    
-                    <!-- We use a hidden input for the user to manually paste the scanned code -->
-                    <textarea id="signal-input-code" rows="1" placeholder="Paste the scanned code here. (Zero-Paste is recommended)" class="w-full input-style text-xs h-0 p-0 overflow-hidden"></textarea>
-
-                    <button id="generate-answer-btn" class="w-full py-3 bg-purple-600 rounded-lg text-md font-medium hover:bg-purple-700 transition text-white">
-                        2. Process Offer & Generate Answer QR (Receiver)
-                    </button>
-
-                    <div id="qrcode-answer" class="qr-placeholder mt-3 hidden">
-                        <p class="text-sm text-gray-400">Show this Answer QR to the Sender device.</p>
-                    </div>
-                    
-                    <button id="receive-answer-btn" class="w-full py-3 bg-indigo-600 rounded-lg text-md font-medium hover:bg-indigo-700 transition text-white mt-4 hidden">
-                        3. Finalize Connection (Sender)
-                    </button>
-                    
-                    <!-- Hidden Text Areas (for code storage/debugging) -->
-                    <textarea id="offer-code-text" class="hidden"></textarea>
-                    <textarea id="answer-code-text" class="hidden"></textarea>
-                </div>
+                <button id="connect-room-btn" class="w-full py-3 btn-main rounded-lg text-md font-medium bg-green-600 hover:bg-green-700">
+                    2. Connect Automatically
+                </button>
+                
+                <p id="signaling-status" class="text-sm text-gray-400 text-center mt-2"></p>
+                
             </div>
         </div>
 
@@ -210,8 +183,14 @@
     let dataChannel = null;
     let fileMeta = {}; 
     let history = []; 
-    
-    // Using Google's public STUN server to help peers discover their public IP, crucial for P2P connection
+    let signalingWs = null;
+
+    // IMPORTANT: This is a MOCK WebSocket URL for demonstration. 
+    // In a real deployed app, you would need a small, always-on signaling server 
+    // to exchange the connection codes automatically. For testing locally, 
+    // you must replace this with a real server URL you control.
+    const SIGNALING_SERVER_URL = "ws://localhost:8080"; 
+
     const RTC_CONFIG = {
         iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
     };
@@ -231,16 +210,9 @@
     const showP2PSetupBtn = document.getElementById('show-p2p-setup-btn');
     
     // P2P Setup
-    const createOfferBtn = document.getElementById('create-offer-btn');
-    const qrcodeOfferEl = document.getElementById('qrcode-offer');
-    const qrcodeAnswerEl = document.getElementById('qrcode-answer');
-    const offerStatusEl = document.getElementById('offer-status');
-    const signalInputCodeEl = document.getElementById('signal-input-code');
-    const generateAnswerBtn = document.getElementById('generate-answer-btn');
-    const receiveAnswerBtn = document.getElementById('receive-answer-btn');
-    // Hidden text areas for code storage/debugging
-    const offerCodeTextEl = document.getElementById('offer-code-text');
-    const answerCodeTextEl = document.getElementById('answer-code-text');
+    const roomInputEl = document.getElementById('room-input');
+    const connectRoomBtn = document.getElementById('connect-room-btn');
+    const signalingStatusEl = document.getElementById('signaling-status');
     
     // Transfer Controls
     const textInputEl = document.getElementById('text-input');
@@ -286,24 +258,7 @@
         });
     }
 
-    // --- QR CODE GENERATION ---
-    function generateQrCode(elementId, text) {
-        const element = document.getElementById(elementId);
-        element.innerHTML = ''; // Clear previous QR code
-        
-        // This is a common pattern for qrcode.js initialization
-        new QRCode(elementId, {
-            text: text,
-            width: 200,
-            height: 200,
-            colorDark : "#ffffff",
-            colorLight : "#161b22",
-            correctLevel : QRCode.CorrectLevel.M // Increased level for long SDP data
-        });
-        element.classList.remove('hidden');
-    }
-
-    // --- MAIN ACTION FLOW ---
+    // --- MAIN ACTION FLOW (Native Share) ---
 
     mainShareBtn.addEventListener('click', () => {
         fileInput.click();
@@ -330,11 +285,10 @@
                 displayMessage(`Native Share sheet opened. Look for QuickShare or AirDrop devices now!`, 'success');
             }).catch((error) => {
                 console.error('Native sharing failed or cancelled:', error);
-                displayMessage('Native sharing failed or was cancelled. Try the 100% Offline P2P mode below.', 'error');
+                displayMessage('Native sharing failed or was cancelled. Try the PIN/Room connection mode below.', 'error');
             });
         } else {
-            displayMessage('Native file sharing is not fully supported on this device. Using 100% Offline P2P mode is recommended.', 'error');
-            // Check if P2P section is hidden, and if so, simulate a click on the fallback button
+            displayMessage('Native file sharing is not fully supported on this device. Using the PIN/Room connection mode is recommended.', 'error');
             if(setupControlsEl.classList.contains('hidden')) {
                  showP2PSetupBtn.click(); 
             }
@@ -342,7 +296,7 @@
     });
 
 
-    // --- P2P FALLBACK SETUP (Zero-Paste QR) ---
+    // --- P2P FALLBACK SETUP (Automated Signaling) ---
 
     showP2PSetupBtn.addEventListener('click', () => {
         mainShareBtn.classList.add('hidden');
@@ -352,20 +306,97 @@
         connectionStatusEl.textContent = 'Disconnected';
         connectionStatusEl.classList.replace('text-green-500', 'text-red-500');
         transferControlsEl.classList.add('hidden');
-        displayMessage('P2P Mode enabled. Follow the steps: 1. Generate QR, 2. Scan & Process, 3. Scan & Finalize.', 'info');
+        displayMessage('PIN Mode enabled. Enter the same Room Name on both devices to start the automatic connection.', 'info');
         
-        document.dispatchEvent(new Event('p2p_status_changed'));
-        
-        // Reset QR/Input display
-        qrcodeOfferEl.classList.add('hidden');
-        qrcodeAnswerEl.classList.add('hidden');
-        createOfferBtn.classList.remove('hidden');
-        generateAnswerBtn.classList.remove('hidden');
-        receiveAnswerBtn.classList.add('hidden');
+        // Reset state
+        if (peerConnection) { peerConnection.close(); peerConnection = null; }
+        if (signalingWs) { signalingWs.close(); signalingWs = null; }
     });
-
+    
+    connectRoomBtn.addEventListener('click', initSignalingConnection);
     p2pSendFilesBtn.addEventListener('click', sendFilesViaP2P);
 
+    function initSignalingConnection() {
+        const roomName = roomInputEl.value.trim().toUpperCase();
+        if (!roomName) {
+            displayMessage("Please enter a Room Name (e.g., PARTY-1234).", 'error');
+            return;
+        }
+        
+        if (signalingWs) signalingWs.close(); // Close previous connection
+        
+        signalingStatusEl.textContent = "Connecting to signaling server...";
+        connectRoomBtn.disabled = true;
+
+        // Note: For a real deployment, replace localhost:8080 with a secure, public WebSocket URL.
+        signalingWs = new WebSocket(`${SIGNALING_SERVER_URL}?room=${roomName}&peer=${userName}`);
+
+        signalingWs.onopen = () => {
+            signalingStatusEl.textContent = `Connected to Room: ${roomName}. Waiting for partner...`;
+            displayMessage(`Connected to Room: ${roomName}. Waiting for the other device to join.`, 'info');
+        };
+
+        signalingWs.onerror = (error) => {
+            console.error("WebSocket Error:", error);
+            signalingStatusEl.textContent = "Connection failed. Check network or server URL.";
+            displayMessage("Signaling connection failed. Ensure you have mobile data/internet access for the handshake.", 'error');
+            connectRoomBtn.disabled = false;
+        };
+        
+        signalingWs.onclose = () => {
+            signalingStatusEl.textContent = "Signaling disconnected.";
+            connectRoomBtn.disabled = false;
+        };
+
+        signalingWs.onmessage = handleSignalingMessage;
+        
+        // Start RTCPeerConnection creation immediately upon connecting to the signaling server
+        createPeerConnection(true); // Always start as initiator, the signaling logic handles negotiation
+    }
+
+    function sendSignal(message) {
+        if (signalingWs && signalingWs.readyState === WebSocket.OPEN) {
+            signalingWs.send(JSON.stringify(message));
+        } else {
+            console.error("Signaling connection not open.");
+        }
+    }
+
+    async function handleSignalingMessage(event) {
+        const data = JSON.parse(event.data);
+
+        switch (data.type) {
+            case 'offer':
+                signalingStatusEl.textContent = "Received Offer. Generating Answer...";
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                sendSignal({ type: 'answer', sdp: answer });
+                break;
+            case 'answer':
+                signalingStatusEl.textContent = "Received Answer. Finalizing connection...";
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+                break;
+            case 'candidate':
+                signalingStatusEl.textContent = "Exchanging network candidates...";
+                try {
+                    await peerConnection.addIceCandidate(data.candidate);
+                } catch (e) {
+                    console.error('Error adding ICE candidate:', e);
+                }
+                break;
+            case 'join':
+                // A peer joined the room, start the offer process if this device is the initiator
+                if (!peerConnection.localDescription || peerConnection.localDescription.type !== 'offer') {
+                    signalingStatusEl.textContent = "Partner joined. Creating Offer...";
+                    const offer = await peerConnection.createOffer();
+                    await peerConnection.setLocalDescription(offer);
+                    sendSignal({ type: 'offer', sdp: offer });
+                }
+                break;
+        }
+    }
+    
     async function createPeerConnection(isInitiator) {
         if (peerConnection) {
             peerConnection.close();
@@ -375,161 +406,46 @@
 
         peerConnection = new RTCPeerConnection(RTC_CONFIG);
         
-        peerConnection.onicecandidate = ({ candidate }) => {};
+        peerConnection.onicecandidate = ({ candidate }) => {
+            if (candidate) {
+                // Send ICE candidates to the other peer via the signaling server
+                sendSignal({ type: 'candidate', candidate: candidate });
+            }
+        };
 
         peerConnection.oniceconnectionstatechange = () => {
-            document.dispatchEvent(new Event('p2p_status_changed'));
-            
             if (peerConnection.iceConnectionState === 'connected') {
                 connectionStatusEl.textContent = 'Connected';
                 connectionStatusEl.classList.replace('text-red-500', 'text-green-500');
                 transferControlsEl.classList.remove('hidden');
                 setupControlsEl.classList.add('hidden');
-                displayMessage('P2P Connection established! You are ready to share.', 'success');
+                signalingWs.close(); // Close signaling once P2P is established (data consumption stops)
+                displayMessage('P2P Connection established! Data transfer is now 100% local (ZERO mobile data used).', 'success');
             } else if (peerConnection.iceConnectionState === 'failed' || peerConnection.iceConnectionState === 'disconnected' || peerConnection.iceConnectionState === 'closed') {
                  connectionStatusEl.textContent = 'Disconnected';
                  connectionStatusEl.classList.replace('text-green-500', 'text-red-500');
                  transferControlsEl.classList.add('hidden');
-                 if (setupControlsEl.classList.contains('hidden')) {
-                     setupControlsEl.classList.remove('hidden');
-                 }
-                 displayMessage('P2P connection lost or failed. Restart connection process.', 'error');
+                 displayMessage('P2P connection lost. Restart connection.', 'error');
             }
         };
 
-        if (isInitiator) {
-            dataChannel = peerConnection.createDataChannel('dataChannel', { ordered: true, maxRetransmits: 0 });
+        // Create/Receive Data Channel
+        dataChannel = peerConnection.createDataChannel('dataChannel', { ordered: true, maxRetransmits: 0 });
+        setupDataChannelListeners(dataChannel);
+
+        peerConnection.ondatachannel = (event) => {
+            dataChannel = event.channel;
             setupDataChannelListeners(dataChannel);
-        } else {
-            peerConnection.ondatachannel = (event) => {
-                dataChannel = event.channel;
-                setupDataChannelListeners(dataChannel);
-            };
-        }
+        };
     }
-
-    async function createOffer() {
-        qrcodeAnswerEl.classList.add('hidden'); 
-        qrcodeOfferEl.innerHTML = `<p class="text-sm text-gray-400">Generating Offer...</p>`;
-        qrcodeOfferEl.classList.remove('hidden');
-
-        await createPeerConnection(true);
-        const offer = await peerConnection.createOffer();
-        await peerConnection.setLocalDescription(offer);
-
-        displayMessage('Gathering candidates... please wait 5 seconds before displaying QR.', 'info');
-        offerStatusEl.classList.remove('hidden');
-        await new Promise(resolve => setTimeout(resolve, 5000)); 
-        offerStatusEl.classList.add('hidden');
-
-        const offerPayload = JSON.stringify({ sdp: peerConnection.localDescription });
-        offerCodeTextEl.value = offerPayload;
-        
-        generateQrCode('qrcode-offer', offerPayload);
-        createOfferBtn.classList.add('hidden');
-        
-        displayMessage('Offer QR generated (Step 1 Complete). Scan this code with the receiver device.', 'success');
-    }
-
-    createOfferBtn.addEventListener('click', createOffer);
-
-    async function generateAnswer() {
-        // Step 1: Wait for the user to scan the OFFER QR code and paste (zero-paste)
-        let offerPayload;
-        try {
-            offerPayload = await navigator.clipboard.readText();
-        } catch (e) {
-            // Fallback for browsers without clipboard access initiated by user action
-             displayMessage("Clipboard access failed. Please manually paste the code into the text area first.", 'error');
-             return;
-        }
-
-        signalInputCodeEl.value = offerPayload; // Used for processing, but invisible to user (since textarea is hidden)
-
-        if (!offerPayload || offerPayload.length < 100) {
-            displayMessage("Please scan the Offer QR code on the Sender's screen and ensure it is copied to your clipboard, then try again.", 'error');
-            return;
-        }
-        
-        qrcodeOfferEl.classList.add('hidden');
-        qrcodeAnswerEl.innerHTML = `<p class="text-sm text-gray-400">Processing Offer...</p>`;
-        qrcodeAnswerEl.classList.remove('hidden');
-
-        try {
-            const { sdp } = JSON.parse(offerPayload);
-
-            await createPeerConnection(false);
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
-
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-            
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            
-            const answerPayload = JSON.stringify({ sdp: peerConnection.localDescription });
-            answerCodeTextEl.value = answerPayload;
-
-            generateQrCode('qrcode-answer', answerPayload);
-            signalInputCodeEl.value = ''; // Clear input for next step
-
-            generateAnswerBtn.classList.add('hidden');
-            receiveAnswerBtn.classList.remove('hidden');
-
-            displayMessage('Answer QR generated (Step 2 Complete). Show this QR to the sender.', 'success');
-        } catch (e) {
-            console.error("Error generating answer:", e);
-            displayMessage("Error processing code. Make sure you scanned the correct QR.", 'error');
-        }
-    }
-    
-    generateAnswerBtn.addEventListener('click', generateAnswer);
-
-    async function receiveAnswer() {
-        // Step 1: Wait for the user to scan the ANSWER QR code and paste (zero-paste)
-        let answerPayload;
-        try {
-            answerPayload = await navigator.clipboard.readText();
-        } catch (e) {
-            // Fallback for browsers without clipboard access initiated by user action
-             displayMessage("Clipboard access failed. Please manually paste the code into the text area first.", 'error');
-             return;
-        }
-        
-        signalInputCodeEl.value = answerPayload; // Used for processing, but invisible to user
-
-        if (!answerPayload || answerPayload.length < 100) {
-            displayMessage("Please scan the Answer QR code on the Receiver's screen and ensure it is copied to your clipboard, then try again.", 'error');
-            return;
-        }
-
-        try {
-            const { sdp } = JSON.parse(answerPayload);
-
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
-            displayMessage(`Answer received (Step 3 Complete). Connecting...`, 'info');
-            
-            // Cleanup UI (will be hidden entirely once connected)
-            signalInputCodeEl.value = '';
-            
-        } catch (e) {
-            console.error("Error receiving answer:", e);
-            displayMessage("Error processing code. Make sure you scanned the correct QR.", 'error');
-        }
-    }
-
-    receiveAnswerBtn.addEventListener('click', receiveAnswer);
 
     // --- DATACAHNNEL & MESSAGING ---
-
     function setupDataChannelListeners(channel) {
         channel.onopen = () => {
             displayMessage('Data Channel Open! Secure P2P pipe established.', 'success');
-            document.dispatchEvent(new Event('p2p_status_changed'));
         };
 
-        channel.onclose = () => {
-             document.dispatchEvent(new Event('p2p_status_changed'));
-        };
+        channel.onclose = () => {};
 
         channel.onmessage = (event) => {
             if (typeof event.data === 'string') {
@@ -570,7 +486,7 @@
         return false;
     }
 
-    // --- P2P FILE TRANSFER LOGIC (Called manually via P2P mode) ---
+    // --- P2P FILE TRANSFER LOGIC ---
 
     async function sendFilesViaP2P() {
         const files = Array.from(fileInput.files);
@@ -766,42 +682,6 @@
         setupControlsEl.classList.add('hidden');
         p2pSendFilesBtn.classList.add('hidden'); 
 
-        // Listener to capture clipboard content for the P2P handshake
-        document.addEventListener('paste', async (e) => {
-            if (setupControlsEl.classList.contains('hidden')) return; // Only process paste in P2P mode
-            
-            e.preventDefault();
-            
-            try {
-                const pastedText = e.clipboardData.getData('text');
-                if (pastedText && pastedText.length > 100) { 
-                    signalInputCodeEl.value = pastedText; // Store the scanned/pasted code
-
-                    // Automatically trigger the next step based on which button is visible
-                    if (!generateAnswerBtn.classList.contains('hidden')) {
-                         generateAnswerBtn.click();
-                    } else if (!receiveAnswerBtn.classList.contains('hidden')) {
-                         receiveAnswerBtn.click();
-                    }
-                }
-            } catch (error) {
-                console.error("Paste failed:", error);
-                displayMessage("Paste failed. Please ensure your QR scanner copies the text to the clipboard.", 'error');
-            }
-        });
-
-        // Event listener to show/hide the P2P Send button based on connection status
-        document.addEventListener('p2p_status_changed', () => {
-             const filesSelected = fileInput.files.length > 0;
-             const isConnected = dataChannel && dataChannel.readyState === 'open';
-
-             if (isConnected) {
-                 p2pSendFilesBtn.classList.toggle('hidden', !filesSelected);
-             } else {
-                 p2pSendFilesBtn.classList.add('hidden');
-             }
-        });
-        
         // Listener to update P2P status and show/hide the send button after file selection
         fileInput.addEventListener('change', () => {
             const filesSelected = fileInput.files.length > 0;
