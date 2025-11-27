@@ -255,9 +255,14 @@
         let fileOffset = 0;
         let chunkSize = 16 * 1024; // 16KB
 
-        // !!! FINAL LIVE RAILWAY URL !!!
-        // This URL is secured (wss) and points directly to your deployed signaling server.
-        const SIGNALING_SERVER_URL = "wss://bak-production-d2d1.up.railway.app"; 
+        // --- Multi-Server Fallback Configuration ---
+        const SIGNALING_SERVERS = [
+            // PRIMARY RAILWAY SERVER (Your live URL)
+            { url: "wss://bak-production-d2d1.up.railway.app", name: "Railway (Primary)" }, 
+            // SECONDARY RENDER SERVER (Your live URL)
+            { url: "wss://bak-2zcx.onrender.com", name: "Render (Secondary)" } 
+        ];
+        let currentServerIndex = 0; // Start with the primary server (Railway)
 
         const STUN_SERVERS = {
             iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
@@ -340,7 +345,7 @@
             }
         }
 
-        // --- P2P Signaling & Connection Logic (Automated) ---
+        // --- P2P Signaling & Connection Logic (Automated with Fallback) ---
 
         // Initialize user ID
         app.userId = createUserId();
@@ -350,18 +355,34 @@
                 ws.close();
             }
 
+            // Check if all servers have failed
+            if (currentServerIndex >= SIGNALING_SERVERS.length) {
+                app.status = 'Disconnected';
+                app.p2pMessage = 'ERROR: All signaling servers failed to connect. Check internet access.';
+                app.isConnecting = false;
+                currentServerIndex = 0; // Reset index for next try
+                return;
+            }
+
+            const server = SIGNALING_SERVERS[currentServerIndex];
+            const serverUrl = server.url.startsWith('http') ? server.url.replace('http', 'ws') : server.url;
+            
+            // Critical check for placeholder
+            // This is no longer necessary as we have hardcoded the live URL.
+            
             try {
-                ws = new WebSocket(SIGNALING_SERVER_URL.startsWith('http') ? SIGNALING_SERVER_URL.replace('http', 'ws') : SIGNALING_SERVER_URL);
+                ws = new WebSocket(serverUrl);
             } catch (e) {
                 app.status = 'Disconnected';
-                app.p2pMessage = 'Websocket error. Check URL or ensure server is running.';
-                app.isConnecting = false;
+                app.p2pMessage = `Websocket error connecting to ${server.name}. Retrying...`;
+                currentServerIndex++;
+                setTimeout(initializeWebSocket, 1000); // Wait 1 sec before retrying
                 return;
             }
 
             ws.onopen = () => {
-                console.log('WebSocket connected.');
-                app.p2pMessage = 'WebSocket connected. Sending join request...';
+                console.log(`WebSocket connected to ${server.name}.`);
+                app.p2pMessage = `Connected to ${server.name}. Sending join request...`;
                 
                 // Send ID and Room Name to the signaling server
                 ws.send(JSON.stringify({
@@ -369,29 +390,37 @@
                     room: app.roomName.toUpperCase(),
                     id: app.userId
                 }));
+                // Reset index on success
+                currentServerIndex = 0; 
             };
 
             ws.onmessage = handleSignalingMessage;
 
             ws.onclose = () => {
-                console.log('WebSocket disconnected.');
+                console.log(`WebSocket to ${server.name} disconnected.`);
                 app.status = 'Disconnected';
-                app.p2pMessage = 'Signaling disconnected. Please refresh or try again.';
-                // Clean up all peer connections on signaling server disconnect
+                // Only retry if it was the initial connection attempt
+                if (app.isConnecting) {
+                    app.p2pMessage = `Connection to ${server.name} failed. Attempting fallback...`;
+                    currentServerIndex++;
+                    setTimeout(initializeWebSocket, 1000);
+                } else {
+                    app.p2pMessage = 'Signaling disconnected. Please refresh or try again.';
+                }
+
+                // Clean up connections
                 for (const peerId in app.peers) {
                     if (app.peers[peerId].connection) {
                         app.peers[peerId].connection.close();
                     }
                     delete app.peers[peerId];
                 }
-                app.isConnecting = false;
             };
 
             ws.onerror = (err) => {
-                console.error('WebSocket error:', err);
-                app.status = 'Disconnected';
-                app.p2pMessage = 'Signaling connection failed. Check console for error details.';
-                app.isConnecting = false;
+                console.error(`WebSocket error on ${server.name}:`, err);
+                // Trigger fallback on error
+                ws.close(); 
             };
         }
 
@@ -403,6 +432,7 @@
             
             app.isConnecting = true;
             app.p2pMessage = 'Attempting connection... (requires internet access for handshake)';
+            currentServerIndex = 0; // Always start with the primary server
             initializeWebSocket();
             app.status = 'Connecting...';
         }
@@ -427,7 +457,7 @@
             } else if (data.type === 'answer') {
                 // Received an answer to our offer.
                 if (app.peers[data.senderId] && app.peers[data.senderId].connection) {
-                    app.p2pMessage = `Received answer from ${data.senderId}. Finalizing connection...`;
+                    app.p2dMessage = `Received answer from ${data.senderId}. Finalizing connection...`;
                     app.peers[data.senderId].connection.setRemoteDescription(new RTCSessionDescription(data.sdp))
                         .catch(e => console.error('Error setting remote description (answer):', e));
                 }
