@@ -178,10 +178,8 @@
     
     <!-- Toast/Modal for messages (no alert/confirm) -->
     <div id="message-modal" class="fixed inset-0 bg-black bg-opacity-70 hidden items-center justify-center p-4 z-50">
-        <div class="card p-6 rounded-xl w-full max-w-sm">
-            <h3 class="text-xl font-bold mb-4 text-white">UniDrop Message</h3>
-            <p id="modal-text" class="mb-6 text-gray-300"></p>
-            <button onclick="document.getElementById('message-modal').style.display='none'" class="btn-primary w-full py-2 rounded-lg">Close</button>
+        <div id="modal-content-wrapper" class="card p-6 rounded-xl w-full max-w-sm">
+            <!-- Content will be injected here -->
         </div>
     </div>
     
@@ -271,8 +269,32 @@
         // --- Utility Functions (Global, relying on app state) ---
 
         function showMessage(title, text) {
-            document.getElementById('modal-text').innerText = text;
+            const content = document.getElementById('modal-content-wrapper');
+            content.innerHTML = `
+                <h3 class="text-xl font-bold mb-4 text-white">${title}</h3>
+                <p class="mb-6 text-gray-300">${text}</p>
+                <button onclick="document.getElementById('message-modal').style.display='none'" class="btn-primary w-full py-2 rounded-lg">Close</button>
+            `;
             document.getElementById('message-modal').style.display = 'flex';
+        }
+
+        function showManualCopyModal(text) {
+            const content = document.getElementById('modal-content-wrapper');
+            content.innerHTML = `
+                <h3 class="text-xl font-bold mb-4 text-white">Manual Copy Required</h3>
+                <p class="mb-4 text-red-300">Automatic copy failed due to browser restrictions.</p>
+                <p class="mb-2 text-gray-300">Please manually select and copy the text below (Ctrl+C / long-press copy):</p>
+                <textarea id="manualCopyText" class="input-text w-full p-2 rounded-lg resize-none text-sm h-32 mb-4" readonly>${text}</textarea>
+                <button onclick="document.getElementById('message-modal').style.display='none'" class="btn-primary w-full py-2 rounded-lg">Done</button>
+            `;
+            document.getElementById('message-modal').style.display = 'flex';
+            
+            setTimeout(() => {
+                const textarea = document.getElementById('manualCopyText');
+                if (textarea) {
+                    textarea.select();
+                }
+            }, 50);
         }
 
         function createUserId() {
@@ -308,17 +330,19 @@
         }
 
         function copyToClipboard(text) {
-            const tempInput = document.createElement('textarea');
-            tempInput.value = text;
-            document.body.appendChild(tempInput);
-            tempInput.select();
-            try {
-                document.execCommand('copy');
-                showMessage('Copied!', 'Text successfully copied to your clipboard.');
-            } catch (err) {
-                showMessage('Copy Failed', 'Unable to copy text. Please copy manually.');
+            // 1. Attempt modern Clipboard API
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showMessage('Copied!', 'Text successfully copied to your clipboard.');
+                }).catch(err => {
+                    // 2. If modern API fails (due to restrictions), fall back to manual copy instructions
+                    console.error('Clipboard API failed, initiating manual copy fallback:', err);
+                    showManualCopyModal(text);
+                });
+            } else {
+                // 3. Fallback for old/unreliable browsers (go straight to manual copy)
+                showManualCopyModal(text);
             }
-            document.body.removeChild(tempInput);
         }
         
         // --- Web Share API (Native Share) ---
@@ -495,6 +519,9 @@
             };
             
             pc.onconnectionstatechange = () => {
+                // FIX: Check if peer still exists before accessing properties (prevents race condition error)
+                if (!app.peers[remoteId]) return;
+                
                 console.log(`[${remoteId}] PC State:`, pc.connectionState);
                 if (pc.connectionState === 'connected') {
                     app.peers[remoteId].status = 'Connected';
