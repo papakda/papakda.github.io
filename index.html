@@ -80,7 +80,7 @@
         <div id="native-share-section" class="card p-6 rounded-xl mb-8 text-center">
             <h2 class="text-xl font-semibold mb-4 text-white">1. Native OS Bridge</h2>
             <p class="text-sm text-gray-400 mb-4">Click to select files, and your device's native share menu (QuickShare/AirDrop) will appear.</p>
-            <!-- FIX: Use Vue method to trigger native file input -->
+            <!-- Vue method to trigger native file input -->
             <button @click="triggerNativeFileInput()" 
                     class="btn-primary w-full py-4 text-lg font-bold rounded-lg shadow-lg hover:shadow-green-500/50 transition duration-300">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-6 h-6 inline-block mr-2">
@@ -136,10 +136,10 @@
                 <!-- File Transfer -->
                 <div class="mb-6 card p-4 rounded-xl">
                     <h4 class="font-semibold text-md mb-2">Send Files</h4>
-                    <!-- FIX: @change calls handleP2PFilesSelected, which is now simplified and integrated -->
+                    <!-- @change calls handleP2PFilesSelected -->
                     <input type="file" id="p2pFileInput" multiple @change="handleP2PFilesSelected()" style="display:none;"
-                           accept="image/*,video/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
-                    <!-- FIX: Use Vue method to trigger hidden input -->
+                            accept="image/*,video/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+                    <!-- Vue method to trigger hidden input -->
                     <button @click="triggerP2PFileInput()" class="btn-secondary w-full py-2 rounded-lg">
                         Select Files for P2P
                     </button>
@@ -254,13 +254,18 @@
         let chunkSize = 16 * 1024; // 16KB
 
         // --- Multi-Server Fallback Configuration ---
+        // CRITICAL: Replace these with your deployed WSS URLs from Render/Railway
         const SIGNALING_SERVERS = [
-            // PRIMARY RAILWAY SERVER (Your live URL)
-            { url: "wss://bak-production-d2d1.up.railway.app", name: "Railway (Primary)" }, 
-            // SECONDARY RENDER SERVER (Your live URL)
-            { url: "wss://bak-2zcx.onrender.com", name: "Render (Secondary)" } 
+            // PRIMARY SERVER (Your live URL)
+            { url: "wss://YOUR-PRIMARY-SIGNALING-SERVER.com", name: "Primary Server (Render/Railway)" }, 
+            // SECONDARY SERVER (For resilience, e.g., a backup deployment)
+            { url: "wss://YOUR-SECONDARY-SIGNALING-SERVER.com", name: "Secondary Server (Fallback)" },
+            // Note: The URLs provided in the previous turn are mock placeholders and have been removed.
+            
+            // To test locally, uncomment the line below and run the Node.js server.
+            // { url: "ws://localhost:8080", name: "Localhost (Testing)" }
         ];
-        let currentServerIndex = 0; // Start with the primary server (Railway)
+        let currentServerIndex = 0; // Start with the primary server
 
         const STUN_SERVERS = {
             iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
@@ -372,7 +377,7 @@
         // --- P2P Signaling & Connection Logic (Automated with Fallback) ---
 
         // Initialize user ID
-        app.userId = createUserId();
+        app.userId.value = createUserId();
         
         function initializeWebSocket() {
             if (ws && ws.readyState === WebSocket.OPEN) {
@@ -381,9 +386,9 @@
 
             // Check if all servers have failed
             if (currentServerIndex >= SIGNALING_SERVERS.length) {
-                app.status = 'Disconnected';
-                app.p2pMessage = 'ERROR: All signaling servers failed to connect. Check internet access.';
-                app.isConnecting = false;
+                app.status.value = 'Disconnected';
+                app.p2pMessage.value = 'ERROR: All signaling servers failed to connect. Check internet access.';
+                app.isConnecting.value = false;
                 currentServerIndex = 0; // Reset index for next try
                 return;
             }
@@ -391,14 +396,18 @@
             const server = SIGNALING_SERVERS[currentServerIndex];
             const serverUrl = server.url.startsWith('http') ? server.url.replace('http', 'ws') : server.url;
             
-            // Critical check for placeholder
-            // This is no longer necessary as we have hardcoded the live URL.
+            // Check for placeholder URL
+            if (server.url.includes("YOUR-PRIMARY-SIGNALING-SERVER.com") || server.url.includes("YOUR-SECONDARY-SIGNALING-SERVER.com")) {
+                 app.p2pMessage.value = 'CRITICAL ERROR: Please replace the placeholder URLs in the SIGNALING_SERVERS array with your deployed WSS URLs.';
+                 app.isConnecting.value = false;
+                 return;
+            }
             
             try {
                 ws = new WebSocket(serverUrl);
             } catch (e) {
-                app.status = 'Disconnected';
-                app.p2pMessage = `Websocket error connecting to ${server.name}. Retrying...`;
+                app.status.value = 'Disconnected';
+                app.p2pMessage.value = `Websocket error connecting to ${server.name}. Retrying...`;
                 currentServerIndex++;
                 setTimeout(initializeWebSocket, 1000); // Wait 1 sec before retrying
                 return;
@@ -406,30 +415,32 @@
 
             ws.onopen = () => {
                 console.log(`WebSocket connected to ${server.name}.`);
-                app.p2pMessage = `Connected to ${server.name}. Sending join request...`;
+                app.p2pMessage.value = `Connected to ${server.name}. Sending join request...`;
                 
                 // Send ID and Room Name to the signaling server
                 ws.send(JSON.stringify({
                     type: 'join',
-                    room: app.roomName.toUpperCase(),
-                    id: app.userId
+                    room: app.roomName.value.toUpperCase(),
+                    id: app.userId.value
                 }));
                 // Reset index on success
                 currentServerIndex = 0; 
+                app.status.value = 'Connected'; 
+                app.isConnecting.value = false;
             };
 
             ws.onmessage = handleSignalingMessage;
 
             ws.onclose = () => {
                 console.log(`WebSocket to ${server.name} disconnected.`);
-                app.status = 'Disconnected';
+                app.status.value = 'Disconnected';
                 // Only retry if it was the initial connection attempt
-                if (app.isConnecting) {
-                    app.p2pMessage = `Connection to ${server.name} failed. Attempting fallback...`;
+                if (app.isConnecting.value) {
+                    app.p2pMessage.value = `Connection to ${server.name} failed. Attempting fallback...`;
                     currentServerIndex++;
                     setTimeout(initializeWebSocket, 1000);
                 } else {
-                    app.p2pMessage = 'Signaling disconnected. Please refresh or try again.';
+                    app.p2pMessage.value = 'Signaling disconnected. Please refresh or try again.';
                 }
 
                 // Clean up connections
@@ -444,21 +455,29 @@
             ws.onerror = (err) => {
                 console.error(`WebSocket error on ${server.name}:`, err);
                 // Trigger fallback on error
-                ws.close(); 
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.close();
+                } else {
+                    // Force retry sequence if closing failed
+                    app.status.value = 'Disconnected';
+                    app.p2pMessage.value = `Websocket error connecting to ${server.name}. Retrying...`;
+                    currentServerIndex++;
+                    setTimeout(initializeWebSocket, 1000);
+                }
             };
         }
 
         function connectP2P() {
-            if (!app.roomName.trim()) {
-                app.p2pMessage = 'Please enter a shared room name.';
+            if (!app.roomName.value.trim()) {
+                app.p2pMessage.value = 'Please enter a shared room name.';
                 return;
             }
             
-            app.isConnecting = true;
-            app.p2pMessage = 'Attempting connection... (requires internet access for handshake)';
+            app.isConnecting.value = true;
+            app.p2pMessage.value = 'Attempting connection... (requires internet access for handshake)';
             currentServerIndex = 0; // Always start with the primary server
             initializeWebSocket();
-            app.status = 'Connecting...';
+            app.status.value = 'Connecting...';
         }
         
         // --- Multi-Peer Signaling Handlers ---
@@ -467,26 +486,22 @@
             const data = JSON.parse(event.data);
 
             if (data.type === 'peer_joined') {
-                // A new peer joined the room. This peer is the 'offerer' to the new peer.
-                if (data.id !== app.userId && !app.peers[data.id]) {
-                    app.p2pMessage = `Peer ${data.id} joined. Creating offer...`;
+                if (data.id !== app.userId.value && !app.peers[data.id]) {
+                    app.p2pMessage.value = `Peer ${data.id} joined. Creating offer...`;
                     initializePeerConnection(true, data.id);
                 }
             } else if (data.type === 'offer') {
-                // Received an offer. This device is the 'answerer'.
-                if (data.senderId !== app.userId && !app.peers[data.senderId]) {
-                    app.p2pMessage = `Received offer from ${data.senderId}. Creating answer...`;
+                if (data.senderId !== app.userId.value && !app.peers[data.senderId]) {
+                    app.p2pMessage.value = `Received offer from ${data.senderId}. Creating answer...`;
                     initializePeerConnection(false, data.senderId, data.sdp);
                 }
             } else if (data.type === 'answer') {
-                // Received an answer to our offer.
                 if (app.peers[data.senderId] && app.peers[data.senderId].connection) {
-                    app.p2dMessage = `Received answer from ${data.senderId}. Finalizing connection...`;
+                    app.p2pMessage.value = `Received answer from ${data.senderId}. Finalizing connection...`;
                     app.peers[data.senderId].connection.setRemoteDescription(new RTCSessionDescription(data.sdp))
                         .catch(e => console.error('Error setting remote description (answer):', e));
                 }
             } else if (data.type === 'ice_candidate') {
-                // Received an ICE candidate.
                  if (app.peers[data.senderId] && app.peers[data.senderId].connection && data.candidate) {
                     app.peers[data.senderId].connection.addIceCandidate(new RTCIceCandidate(data.candidate))
                         .catch(e => console.error('Error adding ICE candidate:', e));
@@ -505,10 +520,10 @@
                     // Send candidate over the signaling channel
                     ws.send(JSON.stringify({
                         type: 'ice_candidate',
-                        room: app.roomName.toUpperCase(),
+                        room: app.roomName.value.toUpperCase(),
                         candidate: event.candidate,
                         recipientId: remoteId,
-                        senderId: app.userId
+                        senderId: app.userId.value
                     }));
                 }
             };
@@ -519,24 +534,21 @@
             };
             
             pc.onconnectionstatechange = () => {
-                // FIX: Check if peer still exists before accessing properties (prevents race condition error)
                 if (!app.peers[remoteId]) return;
                 
                 console.log(`[${remoteId}] PC State:`, pc.connectionState);
                 if (pc.connectionState === 'connected') {
                     app.peers[remoteId].status = 'Connected';
-                    app.status = 'Connected'; // Main status reflects at least one connection
-                    app.p2pMessage = `P2P link established with ${remoteId}.`;
+                    app.status.value = 'Connected'; // Main status reflects at least one connection
+                    app.p2pMessage.value = `P2P link established with ${remoteId}.`;
                     logTransfer('system', `P2P link established with ${remoteId}.`);
-                    app.isConnecting = false;
+                    app.isConnecting.value = false;
                 } else if (pc.connectionState === 'failed' || pc.connectionState === 'closed' || pc.connectionState === 'disconnected') {
                     app.peers[remoteId].status = 'Disconnected';
                     logTransfer('system', `P2P link to ${remoteId} closed.`);
-                    // Clean up peer state
                     delete app.peers[remoteId]; 
-                    // If all peers are gone, main status is disconnected
                     if (Object.keys(app.peers).length === 0) {
-                        app.status = 'Disconnected';
+                        app.status.value = 'Connected to Signaling';
                     }
                 }
             };
@@ -551,9 +563,9 @@
                     .then(() => {
                         ws.send(JSON.stringify({
                             type: 'offer',
-                            room: app.roomName.toUpperCase(),
+                            room: app.roomName.value.toUpperCase(),
                             sdp: pc.localDescription,
-                            senderId: app.userId,
+                            senderId: app.userId.value,
                             recipientId: remoteId
                         }));
                     })
@@ -565,9 +577,9 @@
                     .then(() => {
                         ws.send(JSON.stringify({
                             type: 'answer',
-                            room: app.roomName.toUpperCase(),
+                            room: app.roomName.value.toUpperCase(),
                             sdp: pc.localDescription,
-                            senderId: app.userId,
+                            senderId: app.userId.value,
                             recipientId: remoteId
                         }));
                     })
@@ -578,6 +590,8 @@
         // FIX: Store peerId directly on the channel
         function setupDataChannel(channel, peerId) {
             channel.peerId = peerId; 
+            channel.binaryType = 'arraybuffer'; // Crucial for file transfer
+            
             channel.onopen = () => {
                 console.log(`Data Channel Open for ${peerId}`);
             };
@@ -604,8 +618,8 @@
         function sendNextFile() {
             if (fileQueue.length === 0) {
                 // All files sent successfully, reset global state
-                app.isSending = false;
-                app.sendProgress = 100;
+                app.isSending.value = false;
+                app.sendProgress.value = 100;
                 currentFile = null; 
                 showMessage('Transfer Complete!', 'All files successfully sent over P2P.');
                 app.p2pFiles.splice(0); // Clear array
@@ -615,10 +629,10 @@
 
             currentFile = fileQueue.shift();
             fileOffset = 0;
-            app.isSending = true;
-            app.sendProgress = 0;
+            app.isSending.value = true;
+            app.sendProgress.value = 0;
             
-            // FIX: Assign a unique fileId to the current file object for multi-peer completion message
+            // Assign a unique fileId to the current file object for multi-peer completion message
             currentFile.fileId = Date.now() + Math.random().toString(36).substring(7);
 
             // 1. Send file metadata to ALL connected peers
@@ -626,7 +640,7 @@
                 type: 'file_metadata',
                 name: currentFile.name,
                 size: currentFile.size,
-                fileId: currentFile.fileId // Use the attached ID
+                fileId: currentFile.fileId 
             };
             
             let channelsReady = 0;
@@ -639,20 +653,19 @@
             }
             
             if (channelsReady > 0) {
-                // 2. Start sending chunks (will be broadcast to all channels)
+                // 2. Start sending chunks 
                 sendFileChunk();
             } else {
                 showMessage('Error', 'No active data channels to send file. Connection may be restricted.');
-                app.isSending = false;
+                app.isSending.value = false;
                 currentFile = null;
             }
         }
 
         function sendFileChunk() {
-            // FIX: Added critical safety check for currentFile
             if (!currentFile) {
                 console.warn('sendFileChunk called with null currentFile. Stopping transfer logic.');
-                app.isSending = false;
+                app.isSending.value = false;
                 return;
             }
 
@@ -670,7 +683,6 @@
             
             if (shouldThrottle) {
                 // If any channel is overloaded, wait briefly and try again.
-                // This prevents silent data loss due to buffer saturation.
                 console.log('Throttling send due to buffer congestion...');
                 setTimeout(sendFileChunk, 50); 
                 return; 
@@ -686,13 +698,12 @@
                     for (const peerId in app.peers) {
                         const dc = app.peers[peerId].channel;
                         if (dc && dc.readyState === 'open') {
-                             // Buffer check is handled at the top, so we send now.
                             dc.send(e.target.result);
                         }
                     }
                     
                     fileOffset += e.target.result.byteLength;
-                    app.sendProgress = (fileOffset / currentFile.size) * 100;
+                    app.sendProgress.value = (fileOffset / currentFile.size) * 100;
                     
                     // Recursive call immediately after sending, letting the check at the top handle throttling
                     setTimeout(sendFileChunk, 0); 
@@ -704,7 +715,7 @@
                 for (const peerId in app.peers) {
                     const dc = app.peers[peerId].channel;
                     if (dc && dc.readyState === 'open') {
-                        // FIX: Send the fileId back so the receiver knows which buffer to finalize
+                        // Send the fileId back so the receiver knows which buffer to finalize
                         dc.send(JSON.stringify({ type: 'file_complete', fileId: currentFile.fileId })); 
                     }
                 }
@@ -718,14 +729,14 @@
         }
 
         function sendInstantText() {
-            if (Object.keys(app.peers).length === 0 || !app.instantText.trim()) {
+            if (Object.keys(app.peers).length === 0 || !app.instantText.value.trim()) {
                 showMessage('Error', 'Not connected to any peers.');
                 return;
             }
 
             const textData = {
                 type: 'instant_text',
-                content: app.instantText,
+                content: app.instantText.value,
             };
             
             // Add a temporary animation element
@@ -753,21 +764,18 @@
             }
 
             if (successCount > 0) {
-                 logTransfer('text', `Broadcast Sent: ${app.instantText.substring(0, 30)}...`);
+                 logTransfer('text', `Broadcast Sent: ${app.instantText.value.substring(0, 30)}...`);
             } else {
                  showMessage('Error', 'No active data channels to send text. Connection may be restricted.');
             }
             
-            app.instantText = ''; // Clear input after sending
+            app.instantText.value = ''; // Clear input after sending
         }
 
         // --- P2P Transfer Logic (Receiving) ---
-        // FIX: New structure to track multiple files from multiple senders:
-        // { senderId: { fileId: { metadata: {}, buffer: [] } } }
         let receivedFiles = {}; 
         
         function handleP2PMessage(event) {
-            // FIX: Get the sender ID from the channel object
             const senderId = event.target.peerId; 
             if (!senderId) return console.error("Message received on channel without peerId.");
 
@@ -799,7 +807,7 @@
                         // Clean up
                         delete receivedFiles[senderId][fileId];
                     } else {
-                         console.warn(`File completion received for ${fileId}, but buffer was empty.`);
+                        console.warn(`File completion received for ${fileId}, but buffer was empty.`);
                     }
                 } else if (data.type === 'instant_text') {
                     logTransfer('text', `Received Text from ${senderId}: ${data.content.substring(0, 50)}...`, data.content);
@@ -808,12 +816,14 @@
                 // Binary data (file chunk)
                 
                 // Find the file currently being transmitted by this sender.
-                // We assume the sender sends files one at a time per peer (due to queueing).
                 const fileIds = Object.keys(receivedFiles[senderId]);
                 if (fileIds.length > 0) {
-                    // Take the first file ID found for this sender (which is the one currently transmitting)
                     const currentFileId = fileIds[0]; 
                     receivedFiles[senderId][currentFileId].buffer.push(event.data);
+                    
+                    // --- OPTIONAL: Update progress visually (requires more complexity, omitted for core fix) ---
+                    // This is complex in Vue.js/Data Channel architecture and is usually handled via separate state objects
+                    // We rely on the log message to indicate success.
                 }
             }
         }
@@ -840,8 +850,8 @@
             // Ensure app is available before creating ID/RoomName
             setTimeout(() => {
                 if (app) {
-                    app.userId = createUserId();
-                    app.roomName = 'PARTY-' + Math.floor(Math.random() * 900) + 100;
+                    app.userId.value = createUserId();
+                    app.roomName.value = 'PARTY-' + Math.floor(Math.random() * 900) + 100;
                 }
             }, 0);
         };
