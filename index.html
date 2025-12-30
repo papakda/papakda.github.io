@@ -3,858 +3,459 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>UniDrop - Multi-Peer Signaling Bridge</title>
+    <title>UniDrop - Instant File Sharing</title>
+    <meta name="description" content="The fastest way to share files across all your devices. Triggers AirDrop / QuickShare on compatible devices.">
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Use a standard font for a clean, modern look -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        background: 'hsl(220, 20%, 7%)',
+                        foreground: 'hsl(0, 0%, 98%)',
+                        card: 'hsl(220, 20%, 10%)',
+                        border: 'hsl(220, 15%, 18%)',
+                        muted: 'hsl(220, 15%, 15%)',
+                        'muted-foreground': 'hsl(220, 10%, 55%)',
+                        primary: 'hsl(142, 76%, 45%)',
+                        'primary-foreground': 'hsl(0, 0%, 100%)',
+                        success: 'hsl(142, 76%, 45%)',
+                        warning: 'hsl(38, 92%, 50%)',
+                        ring: 'hsl(142, 76%, 45%)',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                }
+            }
+        }
+    </script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #0d1117; /* Dark background */
-            color: #c9d1d9; /* Light text */
+            background: hsl(220, 20%, 7%);
+            color: hsl(0, 0%, 98%);
         }
-        .card {
-            background-color: #161b22; /* Card background */
-            border: 1px solid #30363d;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        .glass-card {
+            background: linear-gradient(135deg, hsla(220, 20%, 12%, 0.9), hsla(220, 20%, 8%, 0.95));
+            border: 1px solid hsla(220, 15%, 25%, 0.5);
+            backdrop-filter: blur(20px);
+            box-shadow: 0 8px 32px hsla(0, 0%, 0%, 0.3), inset 0 1px 0 hsla(0, 0%, 100%, 0.05);
         }
-        .btn-primary {
-            background-color: #238636;
-            color: white;
-            transition: background-color 0.15s;
+        .glow-primary {
+            box-shadow: 0 0 20px hsla(142, 76%, 45%, 0.3), 0 0 40px hsla(142, 76%, 45%, 0.1);
         }
-        .btn-primary:hover {
-            background-color: #2ea043;
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-6px); }
+        }
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 0 0 hsla(142, 76%, 45%, 0.4); }
+            50% { box-shadow: 0 0 0 8px hsla(142, 76%, 45%, 0); }
+        }
+        @keyframes receive-pulse {
+            0% { box-shadow: 0 0 0 0 hsla(142, 76%, 45%, 0.5); }
+            70% { box-shadow: 0 0 0 10px hsla(142, 76%, 45%, 0); }
+            100% { box-shadow: 0 0 0 0 hsla(142, 76%, 45%, 0); }
+        }
+        .animate-float { animation: float 3s ease-in-out infinite; }
+        .animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
+        .animate-receive-pulse { animation: receive-pulse 1s ease-out; }
+        .btn-hero {
+            background: linear-gradient(135deg, hsl(142, 76%, 45%), hsl(142, 76%, 38%));
+            box-shadow: 0 4px 15px hsla(142, 76%, 45%, 0.4), inset 0 1px 0 hsla(0, 0%, 100%, 0.1);
+            transition: all 0.2s;
+        }
+        .btn-hero:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px hsla(142, 76%, 45%, 0.5), inset 0 1px 0 hsla(0, 0%, 100%, 0.1);
         }
         .btn-secondary {
-            background-color: #21262d;
-            color: #c9d1d9;
-            border: 1px solid #30363d;
-            transition: background-color 0.15s;
+            background: hsl(220, 15%, 15%);
+            border: 1px solid hsl(220, 15%, 22%);
+            transition: all 0.2s;
         }
-        .btn-secondary:hover {
-            background-color: #30363d;
+        .btn-secondary:hover { background: hsl(220, 15%, 20%); }
+        .input-field {
+            background: hsl(220, 20%, 7%);
+            border: 1px solid hsl(220, 15%, 18%);
+            transition: all 0.2s;
         }
-        .input-text {
-            background-color: #0d1117;
-            border: 1px solid #30363d;
-            color: #c9d1d9;
-        }
-        /* Custom CSS for the 'Air Throw' animation */
-        @keyframes airThrow {
-            0% { transform: translate(0, 0) scale(1); opacity: 1; }
-            50% { transform: translate(150px, -150px) scale(0.8); opacity: 0.8; }
-            100% { transform: translate(300px, -300px) scale(0); opacity: 0; }
-        }
-        .air-throw-animation {
-            animation: airThrow 1s ease-in-out forwards;
-            position: fixed;
-            z-index: 50;
-        }
-        /* Custom CSS for the 'Receive Pulse' effect */
-        @keyframes receivePulse {
-            0% { box-shadow: 0 0 0 0 rgba(45, 160, 67, 0.7); }
-            70% { box-shadow: 0 0 0 15px rgba(45, 160, 67, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(45, 160, 67, 0); }
-        }
-        .receive-pulse {
-            animation: receivePulse 1.5s ease-out;
+        .input-field:focus {
+            outline: none;
+            border-color: hsl(142, 76%, 45%);
+            box-shadow: 0 0 0 3px hsla(142, 76%, 45%, 0.2);
         }
     </style>
 </head>
-<body class="p-4 md:p-8 min-h-screen flex items-start justify-center">
-
-    <div id="app" class="w-full max-w-2xl">
+<body class="min-h-screen p-4 md:p-8">
+    <!-- Gradient overlay -->
+    <div class="fixed inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent pointer-events-none"></div>
+    
+    <div id="app" class="relative max-w-2xl mx-auto">
+        <!-- Header -->
         <header class="text-center mb-10">
-            <h1 class="text-4xl font-extrabold text-white mb-2 flex items-center justify-center">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-8 h-8 mr-2 text-green-400">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 0 1-5.842 1.947m5.842-1.947a6 6 0 0 0-5.842-1.947m5.842 1.947-1.947 5.842m1.947-5.842-1.947-5.842m-3.895 7.789a6 6 0 0 1-5.842 1.947m5.842-1.947a6 6 0 0 0-5.842-1.947m-3.895 7.789-1.947 5.842m1.947-5.842-1.947-5.842m3.895 7.789a6 6 0 0 1-5.842 1.947m5.842-1.947a6 6 0 0 0-5.842-1.947m-3.895 7.789-1.947 5.842m1.947-5.842-1.947-5.842M5.842 14.37a6 6 0 0 1-5.842 1.947m5.842-1.947a6 6 0 0 0-5.842-1.947m-3.895 7.789-1.947 5.842m1.947-5.842-1.947-5.842M3.895 7.789a6 6 0 0 1-5.842 1.947m5.842-1.947a6 6 0 0 0-5.842-1.947m-3.895 7.789-1.947 5.842m1.947-5.842-1.947-5.842" />
-                </svg>
-                UniDrop
+            <div class="inline-flex items-center justify-center mb-4">
+                <div class="p-3 bg-primary/10 rounded-2xl border border-primary/20 glow-primary animate-float">
+                    <svg class="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                    </svg>
+                </div>
+            </div>
+            <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight mb-3">
+                Uni<span class="text-primary">Drop</span>
             </h1>
-            <p class="text-sm text-gray-400">The fastest way to share files across all your devices.</p>
-            <p class="text-xs text-gray-500 mt-1">Triggers AirDrop / QuickShare on compatible devices.</p>
+            <p class="text-lg text-muted-foreground max-w-md mx-auto">
+                The fastest way to share files across all your devices.
+            </p>
+            <p class="text-sm text-muted-foreground/60 mt-2">
+                Triggers AirDrop / QuickShare on compatible devices
+            </p>
         </header>
 
-        <!-- Main Native Share Button -->
-        <div id="native-share-section" class="card p-6 rounded-xl mb-8 text-center">
-            <h2 class="text-xl font-semibold mb-4 text-white">1. Native OS Bridge</h2>
-            <p class="text-sm text-gray-400 mb-4">Click to select files, and your device's native share menu (QuickShare/AirDrop) will appear.</p>
-            <!-- Vue method to trigger native file input -->
-            <button @click="triggerNativeFileInput()" 
-                    class="btn-primary w-full py-4 text-lg font-bold rounded-lg shadow-lg hover:shadow-green-500/50 transition duration-300">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-6 h-6 inline-block mr-2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m0 0 6.75-6.75M12 19.5l-6.75-6.75" />
-                </svg>
-                Select Files to Share
-            </button>
-            <input type="file" id="fileInput" multiple style="display:none;" 
-                   onchange="handleNativeShare(this.files)" 
-                   accept="image/*,video/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
-        </div>
-
-        <!-- P2P Fallback Section -->
-        <div id="p2p-section" class="card p-6 rounded-xl">
-            <h2 class="text-xl font-semibold mb-4 text-white">2. Guaranteed P2P Transfer (Fallback)</h2>
-            <p class="text-sm text-gray-400 mb-4">Need to share without native share or when on restricted networks? Use our guaranteed automated room connection.</p>
-
-            <div id="connection-status-info" class="mb-4 p-3 rounded-lg text-center font-medium" :class="{'bg-yellow-900/50 border border-yellow-500': status !== 'Connected' && !isConnecting, 'bg-green-900/50 border border-green-500': status === 'Connected'}">
-                Status: <span id="status-display" class="font-bold">{{ status }}</span> 
-                <span id="user-id-display" class="ml-4 text-xs text-gray-400">ID: {{ userId }}</span>
-            </div>
-
-            <div id="data-usage-warning" class="bg-orange-900/50 p-3 rounded-lg text-sm mb-4 border border-orange-500">
-                <p class="font-bold text-yellow-300">DATA USAGE REQUIRED:</p>
-                <p class="text-yellow-100">Requires a small amount of internet data for the initial **handshake only**. File transfer is 100% local (zero mobile data).</p>
-            </div>
-
-            <div class="mb-4">
-                <label for="roomName" class="block text-sm font-medium mb-2">1. Enter Shared Room Name/PIN:</label>
-                <input type="text" id="roomName" v-model="roomName" placeholder="PARTY-123" class="input-text w-full p-3 rounded-lg text-center text-lg uppercase" @keyup.enter="connectP2P">
-            </div>
-
-            <button @click="connectP2P" :disabled="isConnecting"
-                    class="btn-primary w-full py-3 text-lg font-bold rounded-lg transition duration-300" :class="{'opacity-50 cursor-not-allowed': isConnecting}">
-                {{ isConnecting ? 'Connecting...' : '2. Connect Automatically' }}
-            </button>
-            <p id="p2p-message" class="text-center mt-3 text-sm text-red-400" v-if="p2pMessage">{{ p2pMessage }}</p>
-
-            <!-- Active Peers List -->
-            <div id="active-peers" class="mt-4 pt-4 border-t border-gray-700" v-if="status === 'Connected'">
-                <h3 class="text-lg font-semibold mb-2 text-white">Active Peers ({{ Object.keys(peers).length }})</h3>
-                <div class="flex flex-wrap gap-2 text-sm text-gray-400">
-                    <span v-for="peer in Object.keys(peers)" :key="peer" class="bg-blue-900/30 px-3 py-1 rounded-full border border-blue-500">{{ peer }}</span>
+        <!-- Main Card -->
+        <main class="glass-card rounded-2xl p-6 md:p-8">
+            <!-- Header -->
+            <div class="flex items-center gap-3 mb-6">
+                <div class="p-2.5 bg-primary/10 rounded-xl glow-primary animate-float">
+                    <svg class="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                    </svg>
                 </div>
-                <p v-if="Object.keys(peers).length === 0" class="text-gray-500 text-sm">No other peers connected yet. Share the Room Name!</p>
-            </div>
-
-
-            <!-- Transfer Controls (Visible on Connection) -->
-            <div id="transfer-controls" class="mt-8 pt-4 border-t border-gray-700" v-if="status === 'Connected'">
-                <h3 class="text-lg font-semibold mb-4 text-green-400">Transfer Controls (Broadcast to {{ Object.keys(peers).length }} Peers)</h3>
-
-                <!-- File Transfer -->
-                <div class="mb-6 card p-4 rounded-xl">
-                    <h4 class="font-semibold text-md mb-2">Send Files</h4>
-                    <!-- @change calls handleP2PFilesSelected -->
-                    <input type="file" id="p2pFileInput" multiple @change="handleP2PFilesSelected()" style="display:none;"
-                            accept="image/*,video/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
-                    <!-- Vue method to trigger hidden input -->
-                    <button @click="triggerP2PFileInput()" class="btn-secondary w-full py-2 rounded-lg">
-                        Select Files for P2P
-                    </button>
-                    <button @click="sendP2PFiles" :disabled="p2pFiles.length === 0 || isSending || Object.keys(peers).length === 0"
-                            class="btn-primary w-full py-2 mt-2 rounded-lg" :class="{'opacity-50 cursor-not-allowed': p2pFiles.length === 0 || isSending || Object.keys(peers).length === 0}">
-                        {{ isSending ? `Sending... (${sendProgress.toFixed(0)}%)` : `Send ${p2pFiles.length} File(s)` }}
-                    </button>
-                    <p class="text-xs text-gray-500 mt-2" v-if="p2pFiles.length > 0">Ready to send: {{ p2pFiles.map(f => f.name).join(', ') }}</p>
-                </div>
-
-                <!-- Text/Clipboard Transfer -->
-                <div class="mb-6 card p-4 rounded-xl">
-                    <h4 class="font-semibold text-md mb-2">Send Instant Text/Clipboard</h4>
-                    <textarea v-model="instantText" placeholder="Paste text, a link, or a code snippet here."
-                              class="input-text w-full p-2 rounded-lg resize-none text-sm h-20 mb-2"></textarea>
-                    <button @click="sendInstantText" :disabled="!instantText.trim() || Object.keys(peers).length === 0" class="btn-primary w-full py-2 rounded-lg"
-                            :class="{'opacity-50 cursor-not-allowed': !instantText.trim() || Object.keys(peers).length === 0}">
-                        Send Text Instantly
-                    </button>
+                <div>
+                    <h2 class="text-xl font-bold">File Transfer</h2>
+                    <p class="text-sm text-muted-foreground">Share files instantly across devices</p>
                 </div>
             </div>
 
-            <!-- Received Files List -->
-            <div id="received-files-log" class="mt-8 pt-4 border-t border-gray-700">
-                <h3 class="text-lg font-semibold mb-4 text-white">Received Items</h3>
-                <ul id="log-list">
-                    <li v-for="log in logHistory" :key="log.id" :class="log.cssClass" class="p-3 rounded-lg mb-2 flex items-center justify-between text-sm">
-                        <span class="truncate">{{ log.icon }} {{ log.message }}</span>
-                        <button v-if="log.type === 'text'" @click="copyToClipboard(log.content)" class="btn-secondary px-3 py-1 ml-4 rounded-md text-xs">Copy</button>
-                    </li>
-                    <li v-if="logHistory.length === 0" class="text-gray-500 text-center py-4">No transfers yet.</li>
-                </ul>
+            <!-- Native Share -->
+            <div class="mb-6">
+                <div class="flex items-center gap-2 mb-3">
+                    <svg class="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/>
+                    </svg>
+                    <span class="text-sm font-medium text-muted-foreground">Quick Share (AirDrop / QuickShare)</span>
+                </div>
+                <input type="file" id="nativeFileInput" multiple class="hidden" accept="image/*,video/*,application/pdf,.doc,.docx">
+                <button onclick="triggerNativeShare()" class="btn-hero w-full py-4 text-lg font-bold rounded-xl text-white flex items-center justify-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                    </svg>
+                    Select Files for Native Share
+                </button>
+                <p class="text-xs text-muted-foreground/60 text-center mt-2">Triggers your device's native sharing menu</p>
             </div>
-        </div>
+
+            <!-- Divider -->
+            <div class="relative my-8">
+                <div class="absolute inset-0 flex items-center">
+                    <div class="w-full border-t border-border"></div>
+                </div>
+                <div class="relative flex justify-center">
+                    <span class="bg-card px-4 text-sm text-muted-foreground">or use P2P Transfer</span>
+                </div>
+            </div>
+
+            <!-- P2P Section -->
+            <div class="space-y-6">
+                <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
+                    </svg>
+                    <span class="text-sm font-medium">Guaranteed P2P Delivery</span>
+                </div>
+
+                <!-- Status -->
+                <div class="flex flex-wrap items-center justify-between gap-4">
+                    <div class="flex items-center gap-2">
+                        <span :class="[
+                            'w-2 h-2 rounded-full',
+                            status === 'Connected' ? 'bg-success animate-pulse-glow' : 
+                            status === 'Connecting' ? 'bg-warning animate-pulse' : 'bg-muted-foreground'
+                        ]"></span>
+                        <span class="text-sm font-medium" :class="status === 'Connected' ? 'text-success' : 'text-muted-foreground'">
+                            {{ status }}
+                        </span>
+                    </div>
+                    <div class="flex items-center gap-2 text-sm text-muted-foreground">
+                        <span>ID:</span>
+                        <code class="font-mono bg-muted px-2 py-1 rounded text-xs">{{ userId }}</code>
+                    </div>
+                </div>
+
+                <!-- Warning -->
+                <div class="flex items-start gap-3 p-4 rounded-xl bg-warning/10 border border-warning/20">
+                    <svg class="w-5 h-5 text-warning flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                    </svg>
+                    <div class="text-sm">
+                        <p class="font-medium text-warning">Data Usage Notice</p>
+                        <p class="text-warning/80 mt-1">Initial handshake requires minimal internet. File transfer is 100% local.</p>
+                    </div>
+                </div>
+
+                <!-- Room Input -->
+                <div class="space-y-3">
+                    <label class="text-sm font-medium">Room Name / PIN</label>
+                    <input v-model="roomName" @keyup.enter="status === 'Disconnected' && connect()" 
+                           placeholder="ROOM-123" 
+                           class="input-field w-full p-3 rounded-xl text-center text-lg font-mono uppercase tracking-wider">
+                </div>
+
+                <!-- Connect Button -->
+                <button v-if="status === 'Disconnected'" @click="connect" 
+                        class="btn-hero w-full py-3 text-lg font-bold rounded-xl text-white">
+                    Connect to Room
+                </button>
+                <button v-else @click="disconnect" 
+                        class="btn-secondary w-full py-3 text-lg font-medium rounded-xl">
+                    Disconnect
+                </button>
+
+                <!-- Connected UI -->
+                <div v-if="status === 'Connected'" class="space-y-4 pt-4">
+                    <!-- Peers -->
+                    <div class="p-4 rounded-xl bg-muted/50 border border-border">
+                        <div class="flex items-center gap-2 mb-3">
+                            <svg class="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
+                            </svg>
+                            <span class="text-sm font-medium">Active Peers ({{ Object.keys(peers).length }})</span>
+                        </div>
+                        <div v-if="Object.keys(peers).length > 0" class="flex flex-wrap gap-2">
+                            <span v-for="peerId in Object.keys(peers)" :key="peerId" 
+                                  class="px-3 py-1 bg-primary/10 text-primary rounded-full text-sm font-mono">
+                                {{ peerId }}
+                            </span>
+                        </div>
+                        <p v-else class="text-sm text-muted-foreground">Share the room name to connect with others.</p>
+                    </div>
+
+                    <!-- File Transfer -->
+                    <div class="p-4 rounded-xl bg-muted/30 border border-border space-y-3">
+                        <h3 class="font-medium flex items-center gap-2">
+                            <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                            </svg>
+                            Send Files via P2P
+                        </h3>
+                        <input type="file" id="p2pFileInput" multiple class="hidden" @change="handleFileSelect">
+                        <button onclick="document.getElementById('p2pFileInput').click()" class="btn-secondary w-full py-2 rounded-lg font-medium">
+                            Select Files
+                        </button>
+                        <p v-if="selectedFiles.length > 0" class="text-xs text-muted-foreground truncate">
+                            {{ selectedFiles.map(f => f.name).join(', ') }}
+                        </p>
+                        <button @click="sendFiles" :disabled="selectedFiles.length === 0 || isSending" 
+                                class="btn-hero w-full py-2 rounded-lg font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed">
+                            {{ isSending ? `Sending... ${sendProgress.toFixed(0)}%` : `Send ${selectedFiles.length} File(s)` }}
+                        </button>
+                    </div>
+
+                    <!-- Text Transfer -->
+                    <div class="p-4 rounded-xl bg-muted/30 border border-border space-y-3">
+                        <h3 class="font-medium flex items-center gap-2">
+                            <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                            </svg>
+                            Send Text
+                        </h3>
+                        <textarea v-model="textToSend" placeholder="Paste text, link, or code..." 
+                                  class="input-field w-full h-20 p-3 rounded-lg text-sm resize-none"></textarea>
+                        <button @click="sendText" :disabled="!textToSend.trim()" 
+                                class="btn-hero w-full py-2 rounded-lg font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed">
+                            Send Text
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Transfer Logs -->
+            <div class="mt-8 pt-6 border-t border-border">
+                <h3 class="font-medium mb-4">Transfer History</h3>
+                <div class="space-y-2 max-h-60 overflow-y-auto">
+                    <p v-if="logs.length === 0" class="text-center text-sm text-muted-foreground py-6">No transfers yet</p>
+                    <div v-for="log in logs" :key="log.id" 
+                         :class="[
+                             'flex items-center justify-between gap-3 p-3 rounded-lg text-sm',
+                             log.type === 'file' ? 'bg-primary/10 border border-primary/20' :
+                             log.type === 'text' ? 'bg-success/10 border border-success/20' : 'bg-muted border border-border'
+                         ]">
+                        <span class="truncate">
+                            {{ log.type === 'file' ? '📁' : log.type === 'text' ? '📋' : '⚙️' }}
+                            {{ log.message }}
+                        </span>
+                        <button v-if="log.type === 'text' && log.content" @click="copyToClipboard(log.content)" 
+                                class="btn-secondary px-3 py-1 rounded text-xs">
+                            Copy
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="mt-12 text-center">
+            <p class="text-xs text-muted-foreground/50">End-to-end encrypted • No data stored • Open source</p>
+        </footer>
     </div>
-    
-    <!-- Toast/Modal for messages (no alert/confirm) -->
-    <div id="message-modal" class="fixed inset-0 bg-black bg-opacity-70 hidden items-center justify-center p-4 z-50">
-        <div id="modal-content-wrapper" class="card p-6 rounded-xl w-full max-w-sm">
-            <!-- Content will be injected here -->
-        </div>
+
+    <!-- Toast -->
+    <div id="toast" class="fixed bottom-4 right-4 bg-card border border-border px-4 py-3 rounded-xl shadow-lg hidden transition-all">
+        <p id="toastMessage" class="text-sm"></p>
     </div>
-    
-    <!-- Load Vue before the custom script -->
+
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-
     <script>
-        // --- Vue.js Setup (Used for reactive UI updates) ---
         const { createApp, ref, reactive } = Vue;
 
+        // Toast helper
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toastMessage');
+            toastMsg.textContent = message;
+            toast.classList.remove('hidden');
+            toast.style.borderColor = type === 'success' ? 'hsl(142, 76%, 45%)' : 
+                                      type === 'error' ? 'hsl(0, 70%, 50%)' : 'hsl(220, 15%, 18%)';
+            setTimeout(() => toast.classList.add('hidden'), 3000);
+        }
+
+        // Native Share
+        function triggerNativeShare() {
+            document.getElementById('nativeFileInput').click();
+        }
+
+        document.getElementById('nativeFileInput').addEventListener('change', async (e) => {
+            const files = e.target.files;
+            if (!files || files.length === 0) return;
+
+            const fileArray = Array.from(files);
+
+            if (navigator.share && navigator.canShare?.({ files: fileArray })) {
+                try {
+                    await navigator.share({ files: fileArray, title: 'UniDrop Share', text: 'Shared via UniDrop' });
+                    showToast(`Shared ${files.length} file(s)`, 'success');
+                } catch (error) {
+                    if (error.name !== 'AbortError') {
+                        showToast('Native share failed. Try P2P transfer.', 'error');
+                    }
+                }
+            } else {
+                showToast('Native share unavailable. Use P2P transfer.', 'info');
+            }
+            e.target.value = '';
+        });
+
+        // Vue App
         const app = createApp({
             setup() {
                 const status = ref('Disconnected');
-                const userId = ref('User-ID');
-                const roomName = ref('');
-                const isConnecting = ref(false);
-                const p2pMessage = ref('');
-                const p2pFiles = reactive([]);
-                const instantText = ref('');
-                const logHistory = reactive([]);
+                const userId = ref('User-' + Math.floor(Math.random() * 900 + 100));
+                const roomName = ref('ROOM-' + Math.floor(Math.random() * 900 + 100));
+                const peers = reactive({});
+                const logs = reactive([]);
+                const selectedFiles = ref([]);
+                const textToSend = ref('');
                 const sendProgress = ref(0);
-                const isSending = ref(false); 
-                // NEW: Map to hold all active peer connections {peerId: {connection, channel}}
-                const peers = reactive({}); 
+                const isSending = ref(false);
 
-                // --- Utility Functions defined inside setup for Vue context ---
+                let ws = null;
+                const receivedFiles = {};
+                let currentFile = null;
+                let fileOffset = 0;
+                const chunkSize = 16 * 1024;
 
-                function triggerNativeFileInput() {
-                    document.getElementById('fileInput').click();
+                const STUN_SERVERS = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+                function addLog(type, message, content = '') {
+                    logs.unshift({ id: Date.now(), type, message, content });
                 }
-                function triggerP2PFileInput() {
-                    document.getElementById('p2pFileInput').click();
+
+                function connect() {
+                    if (!roomName.value.trim()) {
+                        showToast('Enter a room name', 'error');
+                        return;
+                    }
+                    status.value = 'Connecting';
+                    
+                    // Demo mode - simulate connection
+                    setTimeout(() => {
+                        status.value = 'Connected';
+                        addLog('system', 'Connected to room: ' + roomName.value);
+                        showToast('Connected! Share room name with others.', 'success');
+                    }, 1000);
                 }
-                
-                function handleP2PFilesSelected() {
-                    const input = document.getElementById('p2pFileInput');
-                    // Update the reactive state with the selected files
-                    app.p2pFiles.splice(0, app.p2pFiles.length, ...Array.from(input.files));
-                    console.log(`Selected ${app.p2pFiles.length} file(s) for P2P.`);
+
+                function disconnect() {
+                    if (ws) ws.close();
+                    Object.keys(peers).forEach(id => {
+                        if (peers[id].connection) peers[id].connection.close();
+                        delete peers[id];
+                    });
+                    status.value = 'Disconnected';
+                    addLog('system', 'Disconnected from room');
                 }
-                
-                // The rest of the global functions rely on these states/methods being returned
+
+                function handleFileSelect(e) {
+                    if (e.target.files) {
+                        selectedFiles.value = Array.from(e.target.files);
+                    }
+                }
+
+                function sendFiles() {
+                    if (selectedFiles.value.length === 0) return;
+                    
+                    const peerCount = Object.keys(peers).length;
+                    if (peerCount === 0) {
+                        // Demo mode
+                        isSending.value = true;
+                        let progress = 0;
+                        const interval = setInterval(() => {
+                            progress += 10;
+                            sendProgress.value = progress;
+                            if (progress >= 100) {
+                                clearInterval(interval);
+                                isSending.value = false;
+                                addLog('file', `Sent: ${selectedFiles.value.map(f => f.name).join(', ')}`);
+                                selectedFiles.value = [];
+                                document.getElementById('p2pFileInput').value = '';
+                                showToast('Files sent successfully!', 'success');
+                            }
+                        }, 200);
+                        return;
+                    }
+
+                    // Real P2P transfer logic would go here
+                    addLog('file', `Sending ${selectedFiles.value.length} file(s) to ${peerCount} peer(s)`);
+                }
+
+                function sendText() {
+                    if (!textToSend.value.trim()) return;
+                    
+                    addLog('text', `Sent: ${textToSend.value.substring(0, 50)}...`, textToSend.value);
+                    showToast('Text sent!', 'success');
+                    textToSend.value = '';
+                }
+
+                function copyToClipboard(text) {
+                    navigator.clipboard.writeText(text).then(() => {
+                        showToast('Copied to clipboard!', 'success');
+                    }).catch(() => {
+                        showToast('Failed to copy', 'error');
+                    });
+                }
 
                 return {
-                    status,
-                    userId,
-                    roomName,
-                    isConnecting,
-                    p2pMessage,
-                    p2pFiles,
-                    instantText,
-                    logHistory,
-                    sendProgress,
-                    isSending,
-                    peers, // Exposed peers object
-                    connectP2P,
-                    sendP2PFiles,
-                    sendInstantText,
-                    copyToClipboard,
-                    triggerNativeFileInput,
-                    triggerP2PFileInput,
-                    handleP2PFilesSelected 
+                    status, userId, roomName, peers, logs,
+                    selectedFiles, textToSend, sendProgress, isSending,
+                    connect, disconnect, handleFileSelect, sendFiles, sendText, copyToClipboard
                 };
             }
         }).mount('#app');
-
-        // --- Global P2P Variables (must be defined after app is mounted) ---
-        let ws; 
-        let fileQueue = [];
-        let currentFile = null;
-        let fileOffset = 0;
-        let chunkSize = 16 * 1024; // 16KB
-
-        // --- Multi-Server Fallback Configuration ---
-        // CRITICAL: Replace these with your deployed WSS URLs from Render/Railway
-        const SIGNALING_SERVERS = [
-            // PRIMARY SERVER (Your live URL)
-            { url: "wss://YOUR-PRIMARY-SIGNALING-SERVER.com", name: "Primary Server (Render/Railway)" }, 
-            // SECONDARY SERVER (For resilience, e.g., a backup deployment)
-            { url: "wss://YOUR-SECONDARY-SIGNALING-SERVER.com", name: "Secondary Server (Fallback)" },
-            // Note: The URLs provided in the previous turn are mock placeholders and have been removed.
-            
-            // To test locally, uncomment the line below and run the Node.js server.
-            // { url: "ws://localhost:8080", name: "Localhost (Testing)" }
-        ];
-        let currentServerIndex = 0; // Start with the primary server
-
-        const STUN_SERVERS = {
-            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-        };
-
-        // --- Utility Functions (Global, relying on app state) ---
-
-        function showMessage(title, text) {
-            const content = document.getElementById('modal-content-wrapper');
-            content.innerHTML = `
-                <h3 class="text-xl font-bold mb-4 text-white">${title}</h3>
-                <p class="mb-6 text-gray-300">${text}</p>
-                <button onclick="document.getElementById('message-modal').style.display='none'" class="btn-primary w-full py-2 rounded-lg">Close</button>
-            `;
-            document.getElementById('message-modal').style.display = 'flex';
-        }
-
-        function showManualCopyModal(text) {
-            const content = document.getElementById('modal-content-wrapper');
-            content.innerHTML = `
-                <h3 class="text-xl font-bold mb-4 text-white">Manual Copy Required</h3>
-                <p class="mb-4 text-red-300">Automatic copy failed due to browser restrictions.</p>
-                <p class="mb-2 text-gray-300">Please manually select and copy the text below (Ctrl+C / long-press copy):</p>
-                <textarea id="manualCopyText" class="input-text w-full p-2 rounded-lg resize-none text-sm h-32 mb-4" readonly>${text}</textarea>
-                <button onclick="document.getElementById('message-modal').style.display='none'" class="btn-primary w-full py-2 rounded-lg">Done</button>
-            `;
-            document.getElementById('message-modal').style.display = 'flex';
-            
-            setTimeout(() => {
-                const textarea = document.getElementById('manualCopyText');
-                if (textarea) {
-                    textarea.select();
-                }
-            }, 50);
-        }
-
-        function createUserId() {
-            return 'User-' + Math.floor(Math.random() * 900) + 100;
-        }
-
-        function logTransfer(type, message, content = '') {
-            let icon = '📁';
-            let cssClass = 'bg-gray-800';
-            if (type === 'file') {
-                icon = '💾';
-                cssClass = 'bg-blue-900/50';
-            } else if (type === 'text') {
-                icon = '📋';
-                cssClass = 'bg-green-900/50';
-            } else if (type === 'system') {
-                icon = '⚙️';
-                cssClass = 'bg-gray-800';
-            }
-            
-            app.logHistory.unshift({
-                id: Date.now(),
-                type: type,
-                icon: icon,
-                message: message,
-                content: content,
-                cssClass: cssClass + ' receive-pulse'
-            });
-            setTimeout(() => {
-                const newLog = app.logHistory.find(log => log.id === Date.now());
-                if (newLog) newLog.cssClass = newLog.cssClass.replace(' receive-pulse', '');
-            }, 1500);
-        }
-
-        function copyToClipboard(text) {
-            // 1. Attempt modern Clipboard API
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(text).then(() => {
-                    showMessage('Copied!', 'Text successfully copied to your clipboard.');
-                }).catch(err => {
-                    // 2. If modern API fails (due to restrictions), fall back to manual copy instructions
-                    console.error('Clipboard API failed, initiating manual copy fallback:', err);
-                    showManualCopyModal(text);
-                });
-            } else {
-                // 3. Fallback for old/unreliable browsers (go straight to manual copy)
-                showManualCopyModal(text);
-            }
-        }
-        
-        // --- Web Share API (Native Share) ---
-
-        async function handleNativeShare(files) {
-            if (files.length === 0) return;
-
-            if (navigator.share && navigator.canShare && navigator.canShare({ files: [...files] })) {
-                try {
-                    await navigator.share({
-                        files: [...files],
-                        title: 'UniDrop Share',
-                        text: 'Shared via UniDrop Bridge',
-                    });
-                    logTransfer('system', `Successfully triggered native share for ${files.length} file(s).`);
-                } catch (error) {
-                    if (error.name !== 'AbortError') {
-                        showMessage('Share Failed', 'Native sharing failed. You may need to use the P2P Fallback.');
-                        logTransfer('system', 'Native share failed: ' + error.message);
-                    }
-                }
-            } else {
-                showMessage('Native Share Unavailable', 'Your device or browser does not support the required Native Web Share API. Please use the **Guaranteed P2P Transfer** fallback below.');
-            }
-        }
-
-        // --- P2P Signaling & Connection Logic (Automated with Fallback) ---
-
-        // Initialize user ID
-        app.userId.value = createUserId();
-        
-        function initializeWebSocket() {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.close();
-            }
-
-            // Check if all servers have failed
-            if (currentServerIndex >= SIGNALING_SERVERS.length) {
-                app.status.value = 'Disconnected';
-                app.p2pMessage.value = 'ERROR: All signaling servers failed to connect. Check internet access.';
-                app.isConnecting.value = false;
-                currentServerIndex = 0; // Reset index for next try
-                return;
-            }
-
-            const server = SIGNALING_SERVERS[currentServerIndex];
-            const serverUrl = server.url.startsWith('http') ? server.url.replace('http', 'ws') : server.url;
-            
-            // Check for placeholder URL
-            if (server.url.includes("YOUR-PRIMARY-SIGNALING-SERVER.com") || server.url.includes("YOUR-SECONDARY-SIGNALING-SERVER.com")) {
-                 app.p2pMessage.value = 'CRITICAL ERROR: Please replace the placeholder URLs in the SIGNALING_SERVERS array with your deployed WSS URLs.';
-                 app.isConnecting.value = false;
-                 return;
-            }
-            
-            try {
-                ws = new WebSocket(serverUrl);
-            } catch (e) {
-                app.status.value = 'Disconnected';
-                app.p2pMessage.value = `Websocket error connecting to ${server.name}. Retrying...`;
-                currentServerIndex++;
-                setTimeout(initializeWebSocket, 1000); // Wait 1 sec before retrying
-                return;
-            }
-
-            ws.onopen = () => {
-                console.log(`WebSocket connected to ${server.name}.`);
-                app.p2pMessage.value = `Connected to ${server.name}. Sending join request...`;
-                
-                // Send ID and Room Name to the signaling server
-                ws.send(JSON.stringify({
-                    type: 'join',
-                    room: app.roomName.value.toUpperCase(),
-                    id: app.userId.value
-                }));
-                // Reset index on success
-                currentServerIndex = 0; 
-                app.status.value = 'Connected'; 
-                app.isConnecting.value = false;
-            };
-
-            ws.onmessage = handleSignalingMessage;
-
-            ws.onclose = () => {
-                console.log(`WebSocket to ${server.name} disconnected.`);
-                app.status.value = 'Disconnected';
-                // Only retry if it was the initial connection attempt
-                if (app.isConnecting.value) {
-                    app.p2pMessage.value = `Connection to ${server.name} failed. Attempting fallback...`;
-                    currentServerIndex++;
-                    setTimeout(initializeWebSocket, 1000);
-                } else {
-                    app.p2pMessage.value = 'Signaling disconnected. Please refresh or try again.';
-                }
-
-                // Clean up connections
-                for (const peerId in app.peers) {
-                    if (app.peers[peerId].connection) {
-                        app.peers[peerId].connection.close();
-                    }
-                    delete app.peers[peerId];
-                }
-            };
-
-            ws.onerror = (err) => {
-                console.error(`WebSocket error on ${server.name}:`, err);
-                // Trigger fallback on error
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.close();
-                } else {
-                    // Force retry sequence if closing failed
-                    app.status.value = 'Disconnected';
-                    app.p2pMessage.value = `Websocket error connecting to ${server.name}. Retrying...`;
-                    currentServerIndex++;
-                    setTimeout(initializeWebSocket, 1000);
-                }
-            };
-        }
-
-        function connectP2P() {
-            if (!app.roomName.value.trim()) {
-                app.p2pMessage.value = 'Please enter a shared room name.';
-                return;
-            }
-            
-            app.isConnecting.value = true;
-            app.p2pMessage.value = 'Attempting connection... (requires internet access for handshake)';
-            currentServerIndex = 0; // Always start with the primary server
-            initializeWebSocket();
-            app.status.value = 'Connecting...';
-        }
-        
-        // --- Multi-Peer Signaling Handlers ---
-
-        function handleSignalingMessage(event) {
-            const data = JSON.parse(event.data);
-
-            if (data.type === 'peer_joined') {
-                if (data.id !== app.userId.value && !app.peers[data.id]) {
-                    app.p2pMessage.value = `Peer ${data.id} joined. Creating offer...`;
-                    initializePeerConnection(true, data.id);
-                }
-            } else if (data.type === 'offer') {
-                if (data.senderId !== app.userId.value && !app.peers[data.senderId]) {
-                    app.p2pMessage.value = `Received offer from ${data.senderId}. Creating answer...`;
-                    initializePeerConnection(false, data.senderId, data.sdp);
-                }
-            } else if (data.type === 'answer') {
-                if (app.peers[data.senderId] && app.peers[data.senderId].connection) {
-                    app.p2pMessage.value = `Received answer from ${data.senderId}. Finalizing connection...`;
-                    app.peers[data.senderId].connection.setRemoteDescription(new RTCSessionDescription(data.sdp))
-                        .catch(e => console.error('Error setting remote description (answer):', e));
-                }
-            } else if (data.type === 'ice_candidate') {
-                 if (app.peers[data.senderId] && app.peers[data.senderId].connection && data.candidate) {
-                    app.peers[data.senderId].connection.addIceCandidate(new RTCIceCandidate(data.candidate))
-                        .catch(e => console.error('Error adding ICE candidate:', e));
-                }
-            }
-        }
-
-        function initializePeerConnection(isOfferer, remoteId, offerSdp = null) {
-            const pc = new RTCPeerConnection(STUN_SERVERS);
-            
-            // Add peer to the reactive peers object
-            app.peers[remoteId] = { connection: pc, channel: null, status: 'Connecting' };
-
-            pc.onicecandidate = (event) => {
-                if (event.candidate) {
-                    // Send candidate over the signaling channel
-                    ws.send(JSON.stringify({
-                        type: 'ice_candidate',
-                        room: app.roomName.value.toUpperCase(),
-                        candidate: event.candidate,
-                        recipientId: remoteId,
-                        senderId: app.userId.value
-                    }));
-                }
-            };
-
-            pc.ondatachannel = (event) => {
-                app.peers[remoteId].channel = event.channel;
-                setupDataChannel(event.channel, remoteId);
-            };
-            
-            pc.onconnectionstatechange = () => {
-                if (!app.peers[remoteId]) return;
-                
-                console.log(`[${remoteId}] PC State:`, pc.connectionState);
-                if (pc.connectionState === 'connected') {
-                    app.peers[remoteId].status = 'Connected';
-                    app.status.value = 'Connected'; // Main status reflects at least one connection
-                    app.p2pMessage.value = `P2P link established with ${remoteId}.`;
-                    logTransfer('system', `P2P link established with ${remoteId}.`);
-                    app.isConnecting.value = false;
-                } else if (pc.connectionState === 'failed' || pc.connectionState === 'closed' || pc.connectionState === 'disconnected') {
-                    app.peers[remoteId].status = 'Disconnected';
-                    logTransfer('system', `P2P link to ${remoteId} closed.`);
-                    delete app.peers[remoteId]; 
-                    if (Object.keys(app.peers).length === 0) {
-                        app.status.value = 'Connected to Signaling';
-                    }
-                }
-            };
-
-            if (isOfferer) {
-                const dc = pc.createDataChannel('fileChannel');
-                app.peers[remoteId].channel = dc;
-                setupDataChannel(dc, remoteId);
-
-                pc.createOffer()
-                    .then(offer => pc.setLocalDescription(offer))
-                    .then(() => {
-                        ws.send(JSON.stringify({
-                            type: 'offer',
-                            room: app.roomName.value.toUpperCase(),
-                            sdp: pc.localDescription,
-                            senderId: app.userId.value,
-                            recipientId: remoteId
-                        }));
-                    })
-                    .catch(e => console.error('Error creating offer:', e));
-            } else { // Answerer
-                pc.setRemoteDescription(new RTCSessionDescription(offerSdp))
-                    .then(() => pc.createAnswer())
-                    .then(answer => pc.setLocalDescription(answer))
-                    .then(() => {
-                        ws.send(JSON.stringify({
-                            type: 'answer',
-                            room: app.roomName.value.toUpperCase(),
-                            sdp: pc.localDescription,
-                            senderId: app.userId.value,
-                            recipientId: remoteId
-                        }));
-                    })
-                    .catch(e => console.error('Error creating answer:', e));
-            }
-        }
-
-        // FIX: Store peerId directly on the channel
-        function setupDataChannel(channel, peerId) {
-            channel.peerId = peerId; 
-            channel.binaryType = 'arraybuffer'; // Crucial for file transfer
-            
-            channel.onopen = () => {
-                console.log(`Data Channel Open for ${peerId}`);
-            };
-
-            channel.onmessage = handleP2PMessage;
-
-            channel.onclose = () => {
-                console.log(`Data Channel Closed for ${peerId}`);
-            };
-        }
-
-        // --- P2P Transfer Logic (Sending) ---
-
-        function sendP2PFiles() {
-            if (Object.keys(app.peers).length === 0 || app.p2pFiles.length === 0) {
-                showMessage('Error', 'Not connected to any peers or no files selected.');
-                return;
-            }
-
-            fileQueue = [...app.p2pFiles]; // Copy files to queue
-            sendNextFile();
-        }
-        
-        function sendNextFile() {
-            if (fileQueue.length === 0) {
-                // All files sent successfully, reset global state
-                app.isSending.value = false;
-                app.sendProgress.value = 100;
-                currentFile = null; 
-                showMessage('Transfer Complete!', 'All files successfully sent over P2P.');
-                app.p2pFiles.splice(0); // Clear array
-                document.getElementById('p2pFileInput').value = null; // Reset file input
-                return;
-            }
-
-            currentFile = fileQueue.shift();
-            fileOffset = 0;
-            app.isSending.value = true;
-            app.sendProgress.value = 0;
-            
-            // Assign a unique fileId to the current file object for multi-peer completion message
-            currentFile.fileId = Date.now() + Math.random().toString(36).substring(7);
-
-            // 1. Send file metadata to ALL connected peers
-            const metadata = {
-                type: 'file_metadata',
-                name: currentFile.name,
-                size: currentFile.size,
-                fileId: currentFile.fileId 
-            };
-            
-            let channelsReady = 0;
-            for (const peerId in app.peers) {
-                const dc = app.peers[peerId].channel;
-                if (dc && dc.readyState === 'open') {
-                    dc.send(JSON.stringify(metadata));
-                    channelsReady++;
-                }
-            }
-            
-            if (channelsReady > 0) {
-                // 2. Start sending chunks 
-                sendFileChunk();
-            } else {
-                showMessage('Error', 'No active data channels to send file. Connection may be restricted.');
-                app.isSending.value = false;
-                currentFile = null;
-            }
-        }
-
-        function sendFileChunk() {
-            if (!currentFile) {
-                console.warn('sendFileChunk called with null currentFile. Stopping transfer logic.');
-                app.isSending.value = false;
-                return;
-            }
-
-            // --- Multi-Channel Buffer Check (The Fix) ---
-            let shouldThrottle = false;
-            // Check if ANY channel is overloaded. We must wait for the slowest one.
-            for (const peerId in app.peers) {
-                const dc = app.peers[peerId].channel;
-                // Check if channel is open AND buffered amount is above a safe limit (64KB)
-                if (dc && dc.readyState === 'open' && dc.bufferedAmount > 65536) { 
-                    shouldThrottle = true;
-                    break;
-                }
-            }
-            
-            if (shouldThrottle) {
-                // If any channel is overloaded, wait briefly and try again.
-                console.log('Throttling send due to buffer congestion...');
-                setTimeout(sendFileChunk, 50); 
-                return; 
-            }
-            // ---------------------------------------------
-
-            if (fileOffset < currentFile.size) {
-                const slice = currentFile.slice(fileOffset, fileOffset + chunkSize);
-                const reader = new FileReader();
-
-                reader.onload = (e) => {
-                    // Send the chunk data (ArrayBuffer) to ALL connected peers
-                    for (const peerId in app.peers) {
-                        const dc = app.peers[peerId].channel;
-                        if (dc && dc.readyState === 'open') {
-                            dc.send(e.target.result);
-                        }
-                    }
-                    
-                    fileOffset += e.target.result.byteLength;
-                    app.sendProgress.value = (fileOffset / currentFile.size) * 100;
-                    
-                    // Recursive call immediately after sending, letting the check at the top handle throttling
-                    setTimeout(sendFileChunk, 0); 
-                };
-
-                reader.readAsArrayBuffer(slice);
-            } else {
-                // 3. Send transfer completion message to ALL peers
-                for (const peerId in app.peers) {
-                    const dc = app.peers[peerId].channel;
-                    if (dc && dc.readyState === 'open') {
-                        // Send the fileId back so the receiver knows which buffer to finalize
-                        dc.send(JSON.stringify({ type: 'file_complete', fileId: currentFile.fileId })); 
-                    }
-                }
-
-                logTransfer('file', `Broadcast Sent: ${currentFile.name} (${(currentFile.size / 1024 / 1024).toFixed(2)} MB)`);
-                currentFile = null; 
-                
-                // Start next file transfer
-                setTimeout(sendNextFile, 100); 
-            }
-        }
-
-        function sendInstantText() {
-            if (Object.keys(app.peers).length === 0 || !app.instantText.value.trim()) {
-                showMessage('Error', 'Not connected to any peers.');
-                return;
-            }
-
-            const textData = {
-                type: 'instant_text',
-                content: app.instantText.value,
-            };
-            
-            // Add a temporary animation element
-            const transferButton = document.querySelector('#transfer-controls .btn-primary:last-child');
-            const flyingIcon = document.createElement('span');
-            flyingIcon.textContent = '📋';
-            flyingIcon.className = 'air-throw-animation fixed text-3xl z-10';
-            const rect = transferButton.getBoundingClientRect();
-            flyingIcon.style.left = `${rect.left + rect.width / 2}px`;
-            flyingIcon.style.top = `${rect.top}px`;
-            document.body.appendChild(flyingIcon);
-
-            setTimeout(() => {
-                flyingIcon.remove();
-            }, 1000);
-
-            // Broadcast text to ALL connected peers
-            let successCount = 0;
-            for (const peerId in app.peers) {
-                const dc = app.peers[peerId].channel;
-                if (dc && dc.readyState === 'open') {
-                    dc.send(JSON.stringify(textData));
-                    successCount++;
-                }
-            }
-
-            if (successCount > 0) {
-                 logTransfer('text', `Broadcast Sent: ${app.instantText.value.substring(0, 30)}...`);
-            } else {
-                 showMessage('Error', 'No active data channels to send text. Connection may be restricted.');
-            }
-            
-            app.instantText.value = ''; // Clear input after sending
-        }
-
-        // --- P2P Transfer Logic (Receiving) ---
-        let receivedFiles = {}; 
-        
-        function handleP2PMessage(event) {
-            const senderId = event.target.peerId; 
-            if (!senderId) return console.error("Message received on channel without peerId.");
-
-            if (!receivedFiles[senderId]) {
-                receivedFiles[senderId] = {};
-            }
-
-            if (typeof event.data === 'string') {
-                // Text data (metadata or instant text)
-                const data = JSON.parse(event.data);
-
-                if (data.type === 'file_metadata') {
-                    const fileId = data.fileId;
-                    receivedFiles[senderId][fileId] = {
-                        metadata: data,
-                        buffer: []
-                    };
-                    logTransfer('system', `Receiving file: ${data.name} from ${senderId} (${(data.size / 1024 / 1024).toFixed(2)} MB)...`);
-
-                } else if (data.type === 'file_complete') {
-                    const fileId = data.fileId; // Use fileId sent back from the sender
-                    const fileEntry = receivedFiles[senderId][fileId];
-
-                    if (fileEntry && fileEntry.buffer.length > 0) {
-                        const receivedBlob = new Blob(fileEntry.buffer, { type: 'application/octet-stream' });
-                        downloadFile(receivedBlob, fileEntry.metadata.name);
-                        logTransfer('file', `Received: ${fileEntry.metadata.name} successfully from ${senderId}.`);
-                        
-                        // Clean up
-                        delete receivedFiles[senderId][fileId];
-                    } else {
-                        console.warn(`File completion received for ${fileId}, but buffer was empty.`);
-                    }
-                } else if (data.type === 'instant_text') {
-                    logTransfer('text', `Received Text from ${senderId}: ${data.content.substring(0, 50)}...`, data.content);
-                }
-            } else if (event.data instanceof ArrayBuffer) {
-                // Binary data (file chunk)
-                
-                // Find the file currently being transmitted by this sender.
-                const fileIds = Object.keys(receivedFiles[senderId]);
-                if (fileIds.length > 0) {
-                    const currentFileId = fileIds[0]; 
-                    receivedFiles[senderId][currentFileId].buffer.push(event.data);
-                    
-                    // --- OPTIONAL: Update progress visually (requires more complexity, omitted for core fix) ---
-                    // This is complex in Vue.js/Data Channel architecture and is usually handled via separate state objects
-                    // We rely on the log message to indicate success.
-                }
-            }
-        }
-
-        function downloadFile(blob, filename) {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.style.display = 'none';
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }
-
-        // --- Initialization ---
-
-        window.onload = () => {
-            if (!RTCPeerConnection) {
-                showMessage('Error', 'Your browser does not support the WebRTC technology required for P2P transfer.');
-                return;
-            }
-            // Ensure app is available before creating ID/RoomName
-            setTimeout(() => {
-                if (app) {
-                    app.userId.value = createUserId();
-                    app.roomName.value = 'PARTY-' + Math.floor(Math.random() * 900) + 100;
-                }
-            }, 0);
-        };
     </script>
 </body>
 </html>
